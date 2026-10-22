@@ -21,28 +21,42 @@
 
 ## 为什么是这个方案
 
-调研了 Happy / tlive / claude-telegram-mirror / Tencent openclaw-weixin / wechat-claude-code 后确认：
+调研了 Happy / tlive / claude-telegram-mirror / Tencent openclaw-weixin / wechat-claude-code 后确定：
 
-- **微信通道复用腾讯官方 `openclaw-weixin` 使用的 iLink Bot 协议**（扫码登录 + 长轮询收 + 主动推送发），个人微信双向、无 48 小时窗口限制。见 [docs/RESEARCH.md](docs/RESEARCH.md)。
-- **Agent 接入复用两家厂商自己的 hook 机制 + MCP 标准**（tlive 验证过的路线），不接管会话、不改你的工作流。
+- **微信通道复用腾讯官方 `openclaw-weixin` 使用的 iLink Bot 协议**（扫码登录 + 长轮询收 + 主动推送发），
+  个人微信双向、无 48 小时窗口限制。见 [docs/RESEARCH.md](docs/RESEARCH.md)。
+- **Agent 接入复用厂商自己的 hook 机制 + MCP 标准**（tlive 验证过的路线），不接管会话、不改你的工作流。
 - 因此**不部署阿里云 ECS**：没有任何一端需要公网入口。
 
 ## 能力
 
 | 能力 | 状态 |
 |---|---|
-| 任务开始 / 完成 / 异常主动推送 | ✅ |
-| 微信提问 + 选项 + 上下文 | ✅ |
-| 微信回复 → 回到原始会话继续 | ✅（阻塞式 hook / MCP tool result） |
-| 多 Agent / 多子智能体并发 | ✅ |
-| 多问题并发、按 `#CODE` 或"引用回复"精确归属 | ✅ |
-| 防止串线（歧义时拒绝而非猜测） | ✅ |
-| 危险操作必须显式批准，超时=拒绝 | ✅ |
-| 断线重连、重启后待处理问题恢复 | ✅ |
-| 重复投递 / 重复审批去重 | ✅ |
+| 任务开始 / 完成 / 异常主动推送 | ✅ 实测 |
+| 微信提问 + 选项 + 上下文 | ✅ 实测（console 通道） |
+| 微信回复 → 回到原始会话继续 | ✅ 实测：Claude Code、Codex |
+| 危险操作远程审批（拦在工具执行前） | ✅ 实测：Claude Code `PreToolUse` |
+| 多 Agent / 多子智能体并发 | ✅ 实测（4 个真实进程） |
+| 多问题并发、按 `#CODE` 或"引用回复"精确归属 | ✅ 实测（不串线） |
+| 等待人工时其他 Agent 继续执行 | ✅ 实测（时间线可查） |
+| 危险操作必须显式批准，超时=拒绝 | ✅ 测试覆盖 |
+| 断线重连、重启后待处理问题恢复 | ✅ 测试覆盖 |
+| 重复投递 / 重复审批去重 | ✅ 测试覆盖 |
 | 零第三方依赖、Windows / Linux / macOS | ✅ |
+| **真实个人微信收发** | ⏳ 待机主扫码（W1–W3，见验证文档） |
 
-完整验证记录见 [docs/VERIFICATION.md](docs/VERIFICATION.md)，未实现项见 [docs/LIMITATIONS.md](docs/LIMITATIONS.md)。
+没做的、做不到的、需要条件的，都写在 [docs/LIMITATIONS.md](docs/LIMITATIONS.md)；实测细节与时间线在
+[docs/VERIFICATION.md](docs/VERIFICATION.md)。
+
+### 实测时间线（`scripts/e2e_concurrent.py`）
+
+```
+ 0.61s  A=Claude Code 启动      C=Codex 启动
+ 1.62s  B=Codex 启动并阻塞在 ask_human
+11.46s  微信收到问题 #S5VY；A 完成任务（文件已写）
+17.27s  C 完成任务；此时我才回复 #S5VY
+25.82s  B 带着答案继续并结束
+```
 
 ---
 
@@ -51,69 +65,37 @@
 前置：Python ≥ 3.9（`python --version` 可用即可）。
 
 ```powershell
-git clone <this-repo> ; cd agent-remote-bridge
+git clone https://github.com/littletinylee/agent-remote-bridge.git
+cd agent-remote-bridge
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
-# 1) 生成配置（会打印绑定码）
-.\scripts\arb.cmd init
-
-# 2) 扫码登录微信机器人（手机微信扫终端里的二维码）
-.\scripts\arb.cmd login
-
-# 3) 启动守护进程（后台）
-.\scripts\arb.cmd start
-
-# 4) 在微信里给刚出现的机器人发一条消息：
-#    /pair <上一步的绑定码>
-.\scripts\arb.cmd status
+arb init                                   # 生成配置（打印绑定码）
+arb login                                  # 手机微信扫码
+arb start                                  # 后台起守护进程
+# 在微信里给机器人发： /pair <绑定码>
+arb test-push                              # 主动推送自检
 ```
 
-> 首次必须先由你给机器人发一条消息完成绑定 —— Bot 协议只在你发送过消息后才拿到你的 `user_id`。
-
-安装 `qrcode` 可选依赖可以让登录时直接在终端画二维码：
-
-```powershell
-python -m pip install "qrcode[pil]"
-```
+想直接在终端画二维码：`python -m pip install "qrcode[pil]"`（可选）。
+无二维码时 `arb login` 会打印可复制的登录串，用任意二维码生成器扫也行。
 
 ## 接入 Agent
 
-### Claude Code（事件 + 远程审批 + MCP）
+| Agent | 通知 | 主动提问 | 远程审批 |
+|---|---|---|---|
+| **Claude Code** | hooks | MCP | ✅ hooks `PreToolUse` |
+| **Codex** | `notify` | MCP（需放宽审批）或 CLI | ❌ 无审批 hook |
+| 其他 MCP 客户端（DSH / OpenCode…） | — | MCP | 视 Agent 是否有 hook |
+
+**Claude Code**
 
 ```bash
-# MCP：让 Claude 能主动问你
 claude mcp add arb -- python -m arb mcp --agent claude-code
 ```
 
-`~/.claude/settings.json` 增加 hooks（完整示例见 [hooks/claude-settings.example.json](hooks/claude-settings.example.json)）：
+再把 [hooks/claude-settings.example.json](hooks/claude-settings.example.json) 合并进 `~/.claude/settings.json`。
 
-```json
-{
-  "hooks": {
-    "SessionStart":     [{ "hooks": [{ "type": "command", "command": "python -m arb hook claude-code" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python -m arb hook claude-code" }] }],
-    "Notification":     [{ "hooks": [{ "type": "command", "command": "python -m arb hook claude-code" }] }],
-    "Stop":             [{ "hooks": [{ "type": "command", "command": "python -m arb hook claude-code" }] }],
-    "PreToolUse": [{
-      "matcher": "Bash|Write|Edit|MultiEdit",
-      "hooks": [{ "type": "command", "command": "python -m arb hook claude-code", "timeout": 900 }]
-    }]
-  }
-}
-```
-
-远程审批默认关闭（只通知）。要用远程批准工具调用：
-
-```powershell
-# 编辑 %APPDATA%\agent-remote-bridge\config.json
-#   "approval_mode": "approve"
-```
-
-此时 Claude 每要执行 Bash/写文件，都会先发微信问你是否允许；你回 `yes` 或 `/approve #CODE` 才放行。
-**桥接不可用时永远回退到本机确认，绝不自动放行。**
-
-### Codex（完成通知 + MCP）
-
-`~/.codex/config.toml`：
+**Codex**（`~/.codex/config.toml`）
 
 ```toml
 notify = ["python", "-m", "arb", "hook", "codex"]
@@ -123,15 +105,13 @@ command = "python"
 args = ["-m", "arb", "mcp", "--agent", "codex"]
 ```
 
-> Codex 目前没有可拦截工具审批的 hook，因此**只支持通知 + MCP 主动提问**，不支持"远程批准 Codex 的工具调用"。这是明确的能力边界，不伪造。
+**任何能跑命令的 Agent**
 
-### 其他 Agent（DSH / OpenCode / 任意 MCP 客户端）
+```bash
+python -m arb ask "用 Postgres 还是 SQLite?" --option Postgres --option SQLite --timeout 300
+```
 
-- **MCP**：注册 `python -m arb mcp --agent <名字>`，即可用 `ask_human` / `notify` / `progress`。
-- **无 MCP**：`python -m arb ask "问题" --option 允许 --option 拒绝 --timeout 600`
-  （退出码 0=已回答, 3=超时, 4=桥接不可用）。
-
-详见 [docs/AGENTS.md](docs/AGENTS.md)。
+逐项配方、踩过的坑（Codex 的 argv 载荷、MCP 审批策略）见 [docs/AGENTS.md](docs/AGENTS.md)。
 
 ## 微信里怎么用
 
@@ -146,34 +126,45 @@ args = ["-m", "arb", "mcp", "--agent", "codex"]
 /mute /unmute       静音/恢复
 ```
 
-- 只有**一个**待处理问题时，直接回复 `1` / `同意` 即可。
+- 只有**一个**待处理问题时，直接回 `1` / `同意` 即可。
 - **多个**同时等待时，裸回复会被拒绝并列出编号，必须带 `#CODE` —— 这是防串线的关键。
-- 在微信里**引用回复**某条提问，会按消息 ID 精确命中那个问题（优先级最高）。
+- 在微信里**引用回复**某条提问，按消息 ID 精确命中（优先级最高）。
 
 ## 设计要点
 
 - **不重造调度**：Agent 自己的子任务/子智能体机制原样保留，桥接只搬运"需要人"的那一步。
-- **阻塞只阻塞提问者**：`ask_human` 是那个 Agent 的一次工具调用，其他进程完全不受影响。
-- **归属靠三层证据**：引用消息 ID > 显式 `#CODE` > "唯一待处理"。都不成立就拒绝。
-- **一次性状态迁移**：`UPDATE ... WHERE state='pending'` 的 `rowcount` 决定谁赢，并发回复只有一个生效。
-- **失败即拒绝**：投递失败、通道异常、超时，都不会被当成"批准"。
+- **阻塞只阻塞提问者**：`ask_human` 只是那个 Agent 的一次工具调用。
+- **归属靠三层证据**：引用消息 ID > 显式 `#CODE` > "唯一待处理"。都不成立就拒绝，不猜。
+- **一次性状态迁移**：`UPDATE ... WHERE state='pending'` 的 `rowcount` 决定谁赢。
+- **失败即拒绝**：投递失败、通道异常、超时，都不会被当成批准。
 
-## 安全
-
-- 本地 API 只监听 `127.0.0.1`，需 `X-ARB-Token`；绑定码只在未授权设备上不显示。
-- 未授权微信 ID 的消息会被忽略并告警给机主。
-- 凭据存于 `%APPDATA%\agent-remote-bridge\ilink.json`（0600），不写入仓库。
-- 审计日志落在 SQLite 的 `audit` 表。
+细节：[架构](docs/ARCHITECTURE.md) ｜ [安全](docs/SECURITY.md) ｜ [部署运维](docs/DEPLOY.md)
 
 ## 开发
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
-python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests -p "test_*.py"       # 74 个离线测试
+python scripts\e2e_claude.py                              # 真实 Claude Code
+python scripts\e2e_codex.py                               # 真实 Codex
+python scripts\e2e_concurrent.py                          # 并发验收
 ```
 
-74 个离线测试覆盖：路由与串线、并发审批、超时、去重、投递失败、重启恢复、iLink 协议（本地假服务器）、MCP 协议、hook 解析。
+代码结构：
+
+```
+src/arb/
+  channel/     微信 iLink 协议（长轮询/发送/登录）、console 通道
+  router.py    入站消息 → 动作（四层归属证据、命令、危险门禁）
+  store.py     SQLite：sessions/questions/outbox/inbound/audit
+  daemon.py    守护进程：回环 API、outbox 重试、过期清扫、重启恢复
+  mcp.py       MCP stdio 服务器（ask_human 等 5 个工具）
+  agents.py    Claude Code / Codex hook 载荷 → 统一事件
+  cli.py       init/login/serve/status/doctor/ask/notify/hook/mcp
+```
 
 ## 许可
 
-MIT。协议实现参考了 Tencent [openclaw-weixin](https://github.com/Tencent/openclaw-weixin)（MIT）与 [wechat-claude-code](https://github.com/Conn-Ho/wechat-claude-code)（Apache-2.0）；架构思路参考 [tlive](https://github.com/y49/tlive)（MIT）。详见 [NOTICE](NOTICE)。
+MIT。协议实现参考 Tencent [openclaw-weixin](https://github.com/Tencent/openclaw-weixin)（MIT）与
+[wechat-claude-code](https://github.com/Conn-Ho/wechat-claude-code)（Apache-2.0），架构思路参考
+[tlive](https://github.com/y49/tlive)（MIT）。见 [NOTICE](NOTICE)。

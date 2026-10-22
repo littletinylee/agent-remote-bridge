@@ -34,10 +34,17 @@ LOCAL_SENDERS = {"local-cli", "cli", "local", "hook"}
 
 
 class Router:
-    def __init__(self, cfg: Config, store: Store, send: Sender):
+    def __init__(
+        self,
+        cfg: Config,
+        store: Store,
+        send: Sender,
+        channel_info: Callable[[], dict[str, Any]] | None = None,
+    ):
         self.cfg = cfg
         self.store = store
         self.send = send
+        self._channel_info = channel_info
         self._muted = False
         self._lock = threading.Lock()
         self._unauth_notified: dict[str, float] = {}
@@ -200,7 +207,14 @@ class Router:
 
     def _cmd_status(self, msg: InboundMessage, args: str) -> str:
         stats = self.store.stats()
-        channel = {"name": "bridge", "healthy": True, "outbox": self.store.outbox_stats()}
+        if self._channel_info is not None:
+            try:
+                channel = self._channel_info()
+            except Exception:  # pragma: no cover - status must never break
+                channel = {"name": "unknown", "healthy": False}
+        else:
+            channel = {"name": "bridge", "healthy": True, "outbox": self.store.outbox_stats()}
+        channel.setdefault("outbox", self.store.outbox_stats())
         self._reply(T.format_status(stats, self.store.list_sessions(), channel))
         return "status"
 

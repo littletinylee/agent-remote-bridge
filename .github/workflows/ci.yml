@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.9", "3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install (optional qr extra must not be required)
+        run: python -m pip install -e .
+      - name: install optional qr extra
+        run: python -m pip install "qrcode[pil]"
+      - name: unit + integration tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: smoke test the CLI
+        env:
+          PYTHONPATH: src
+          ARB_HOME: ${{ runner.temp }}/arb-home
+        run: |
+          python -m arb --version
+          python -m arb init
+          python -m arb status
+      - name: smoke test the MCP handshake
+        env:
+          PYTHONPATH: src
+          ARB_HOME: ${{ runner.temp }}/arb-home
+        run: python -c "import json,subprocess,sys; p=subprocess.run([sys.executable,'-m','arb','mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params':{}})+chr(10)+json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/list'})+chr(10),capture_output=True,text=True,timeout=60); print(p.stdout); assert '\"tools\"' in p.stdout, p.stderr"

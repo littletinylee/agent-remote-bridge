@@ -32,7 +32,9 @@ class ArbTestCase(unittest.TestCase):
         os.environ["ARB_HOME"] = self._tmp
         from arb.config import Config
 
-        self.cfg = Config()
+        # bootstrap() is what `arb init` does: fill in the API token/pairing code
+        # so tests exercise the same on-disk state production has.
+        self.cfg = Config().bootstrap()
         self.cfg.port = 0  # bind an ephemeral port; tests read the real one back
         self.cfg.save()
         self.home = Path(self._tmp)

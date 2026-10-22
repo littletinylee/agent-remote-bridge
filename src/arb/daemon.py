@@ -28,7 +28,7 @@ from .channel.base import Channel, ChannelError, InboundMessage
 from .config import Config, load, load_ilink
 from .router import Router
 from .store import Question, Store
-from .util import iso, json_dumps, json_loads, log_stderr, new_id, now, one_line, truncate
+from .util import iso, json_dumps, json_loads, log_stderr, new_id, now, one_line, secret_compare, truncate
 
 VERSION = "1.0.0"
 
@@ -87,7 +87,7 @@ class Daemon:
         self.cfg = cfg or load()
         self.store = store or Store(self.cfg.db_path)
         self.channel = channel or make_channel(self.cfg, self.store)
-        self.router = Router(self.cfg, self.store, self._enqueue_reply)
+        self.router = Router(self.cfg, self.store, self._enqueue_reply, channel_info=self._channel_info)
         self.stop_event = threading.Event()
         self.started_at = now()
         self._threads: list[threading.Thread] = []
@@ -97,6 +97,14 @@ class Daemon:
         self._last_channel_error = ""
 
     # -- delivery --------------------------------------------------------
+    def _channel_info(self) -> dict[str, Any]:
+        """Live channel health for the /status reply."""
+        return {
+            "name": getattr(self.channel, "name", "unknown"),
+            "healthy": self.channel.healthy(),
+            "outbox": self.store.outbox_stats(),
+        }
+
     def _enqueue_reply(self, text: str, kind: str = "reply") -> None:
         self.store.enqueue(text, kind=kind, dedupe=None)
 
@@ -324,6 +332,10 @@ class Daemon:
 
     def start_http(self) -> ThreadingHTTPServer:
         daemon = self
+        # Never serve with an empty token: the auth check compares strings, so an
+        # empty configured token would accept a request that omits the header.
+        if not self.cfg.api_token:
+            self.cfg.bootstrap()
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -345,8 +357,12 @@ class Daemon:
                     pass
 
             def _auth_ok(self) -> bool:
+                expected = daemon.cfg.api_token
+                if not expected:
+                    self._json(401, {"ok": False, "error": "daemon has no api token"})
+                    return False
                 token = self.headers.get("X-ARB-Token", "")
-                if token == daemon.cfg.api_token:
+                if secret_compare(token, expected):
                     return True
                 self._json(401, {"ok": False, "error": "bad token"})
                 return False

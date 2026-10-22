@@ -7,6 +7,7 @@ machine with nothing but Python 3.9+.
 from __future__ import annotations
 
 import json
+import hmac
 import os
 import random
 import re
@@ -157,3 +158,10 @@ def safe_basename(path: str | os.PathLike[str]) -> str:
         return Path(path).name or str(path)
     except (OSError, ValueError):
         return string.capwords(str(path))
+
+
+def secret_compare(given: str, expected: str) -> bool:
+    """Constant-time comparison for the loopback API token."""
+    if not given or not expected:
+        return False
+    return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))

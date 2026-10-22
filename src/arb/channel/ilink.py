@@ -252,11 +252,11 @@ def login(
         log_stderr("")
         if qr_png and save_qr_png(content, qr_png):
             log_stderr(f"二维码已保存: {qr_png}")
-        if show_qr and not render_qr(content):
-            log_stderr("（未安装可选依赖 qrcode，无法在终端画二维码）")
         if show_qr:
+            if not render_qr(content):
+                log_stderr("（未安装可选依赖 qrcode，无法在终端画二维码）")
             log_stderr("请用手机微信扫描上方二维码，并在手机上确认授权。")
-        log_stderr(f"备用：把下面的内容贴到任意二维码生成器扫描 ——\n{content}\n")
+            log_stderr(f"备用：把下面的内容贴到任意二维码生成器扫描 ——\n{content}\n")
 
         scanned = False
         while time.time() - started < timeout_s:

@@ -67,6 +67,20 @@ class Config:
     approval_timeout_s: int = 600
     on_timeout: str = "deny"  # deny | allow | ask  (never auto-allow dangerous)
     approval_max_per_session_per_min: int = 12
+    # Read-only shell commands (ls/cat/git status ...) are approved automatically:
+    # asking about them is noise, and they cannot change the machine. Anything
+    # that shells out, chains, redirects or touches a secret is still asked.
+    auto_approve_safe: bool = True
+    safe_commands: list[str] = field(
+        default_factory=lambda: [
+            "ls", "cat", "head", "tail", "wc", "pwd", "echo", "type", "stat",
+            "du", "df", "file", "which", "where", "whoami", "date", "env",
+            "find", "grep", "rg", "sort", "uniq", "diff", "tree",
+        ]
+    )
+    safe_git_subcommands: list[str] = field(
+        default_factory=lambda: ["status", "log", "diff", "show", "branch", "remote", "rev-parse"]
+    )
 
     # behaviour
     quiet: bool = False

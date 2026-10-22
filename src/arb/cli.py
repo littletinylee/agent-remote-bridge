@@ -816,10 +816,42 @@ def _push_event(cfg: Config, ev: agents.AgentEvent, hook_mode: bool = False) -> 
     return EXIT_OK
 
 
+_SAFE_CHAIN = set(";|&><`\n")
+
+
+def _is_safe_read(cfg: Config, ev: "agents.AgentEvent") -> bool:
+    """A narrow, boring definition of 'read-only' for the approval gate.
+
+    It must be a single command, from the allowlist (or a read-only git
+    subcommand), with no chaining/redirection/substitution, and it must not
+    mention an obvious secret.
+    """
+    if ev.tool != "Bash":
+        return False
+    cmd = str((ev.tool_input or {}).get("command") or "").strip()
+    if not cmd or any(ch in cmd for ch in _SAFE_CHAIN) or "$(" in cmd:
+        return False
+    low = cmd.lower()
+    for secret in ("id_rsa", ".ssh", ".env", "credential", "secret", "token", "password", "wallet"):
+        if secret in low:
+            return False
+    parts = cmd.replace('"', " ").replace("'", " ").split()
+    if not parts:
+        return False
+    head = parts[0].lower()
+    if head == "git":
+        return len(parts) > 1 and parts[1].lower() in {s.lower() for s in cfg.safe_git_subcommands}
+    return head in {s.lower() for s in cfg.safe_commands}
+
+
 def _claude_approval(cfg: Config, ev: agents.AgentEvent) -> int:
     """Remote approval gate for Claude Code PreToolUse hooks."""
     if cfg.approval_mode != "approve" or not _tool_gated(cfg, ev.tool):
         return EXIT_OK  # not gated: let Claude Code's own permission flow handle it
+
+    if cfg.auto_approve_safe and _is_safe_read(cfg, ev):
+        _emit_hook_decision("allow", "只读命令，按 auto_approve_safe 自动放行")
+        return EXIT_OK
 
     pair = _ensure_session(cfg, ev)
     if pair is None:

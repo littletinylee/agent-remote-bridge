@@ -574,6 +574,65 @@ def cmd_node(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_node_join(args: argparse.Namespace) -> int:
+    """Register this machine with a hub and switch the daemon to relay mode."""
+    import ssl
+    import urllib.request
+
+    cfg = _cfg()
+    base = args.hub.rstrip("/")
+    name = args.name or (os.environ.get("COMPUTERNAME") or "node").lower()
+    token = args.token or gen_secret(24)
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE  # self-signed hub; pinned below when given
+
+    def post(path: str, payload: dict) -> dict:
+        req = urllib.request.Request(
+            base + path, data=json_dumps(payload).encode(), method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            return json.loads(resp.read().decode() or "{}")
+
+    try:
+        with urllib.request.urlopen(base + "/v1/health", timeout=15, context=ctx) as resp:
+            health = json.loads(resp.read().decode())
+    except Exception as exc:
+        log_stderr(f"连不上 Hub {base}: {exc}")
+        return EXIT_UNAVAILABLE
+    print(f"Hub 可达: {json_dumps(health)}")
+
+    if args.fingerprint:
+        import hashlib
+        import socket
+        with socket.create_connection((base.split("//")[-1].split(":")[0], int(base.rsplit(":", 1)[-1])), timeout=15) as s:
+            with ctx.wrap_socket(s) as ss:
+                seen = hashlib.sha256(ss.getpeercert(binary_form=True) or b"").hexdigest().upper()
+        wanted = args.fingerprint.replace(":", "").upper()
+        if seen != wanted:
+            log_stderr(f"证书指纹不匹配: {seen} != {wanted}")
+            return EXIT_UNAVAILABLE
+        print(f"证书指纹校验通过: {seen[:16]}…")
+        cfg.hub_fingerprint = wanted
+
+    try:
+        reg = post("/v1/register", {"name": name, "token": token})
+    except Exception as exc:
+        log_stderr(f"注册失败: {exc}")
+        return EXIT_UNAVAILABLE
+
+    cfg.channel = "relay"
+    cfg.hub_url = base
+    cfg.hub_node_name = name
+    cfg.hub_token = token
+    cfg.hub_node_id = str(reg.get("node_id") or "")
+    cfg.save()
+    print(f"已注册为 {name} ({cfg.hub_node_id})，通道切换为 relay")
+    print("下一步: arb node setup  (装各家 Agent 插件)  然后 arb start")
+    return EXIT_OK
+
 def cmd_hub(args: argparse.Namespace) -> int:
     """Run the relay hub. This is what systemd starts on the server."""
     from . import hub
@@ -861,6 +920,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("action", nargs="?", default="serve", choices=["serve"])
     sp.add_argument("config", nargs="?", default="/etc/arb/hub.json")
     sp.set_defaults(func=cmd_hub)
+
+    sp = sub.add_parser("node-join", help="把本机注册到 Hub 并切换到 relay 模式")
+    sp.add_argument("hub", help="例如 https://120.78.79.184:18443")
+    sp.add_argument("--name", default="", help="机器名（默认取 COMPUTERNAME）")
+    sp.add_argument("--token", default="", help="节点 token（默认随机生成并保存在本机）")
+    sp.add_argument("--fingerprint", default="", help="Hub 自签证书的 SHA-256 指纹（推荐）")
+    sp.set_defaults(func=cmd_node_join)
 
     sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")
     sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])

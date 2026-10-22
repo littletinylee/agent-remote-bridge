@@ -144,11 +144,7 @@ class RelayChannel(Channel):
             return False
 
     def start(self, on_message: OnMessage, stop_event: threading.Event) -> None:
-        reg = self._call("/v1/register", {
-            "name": self.cfg.hub_node_name,
-            "token": self.cfg.hub_token,
-            "join_code": self.cfg.hub_join_code,
-        })
+        reg = self._call("/v1/register", {"name": self.cfg.hub_node_name, "token": self.cfg.hub_token})
         self.node_id = str(reg.get("node_id") or self.node_id)
         self.cfg.hub_node_id = self.node_id
         self.cfg.save()

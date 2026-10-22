@@ -50,7 +50,6 @@ class Config:
     hub_token: str = ""
     hub_node_id: str = ""
     hub_fingerprint: str = ""
-    hub_join_code: str = ""
     ilink_base_url: str = "https://ilinkai.weixin.qq.com"
     ilink_bot_type: str = "3"
 

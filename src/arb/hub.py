@@ -245,7 +245,6 @@ class Hub:
         self.name = hub_name
         self._stop = threading.Event()
         self._ctx: dict[str, str] = {}
-        self.join_code = ""
         self.question_ttl_s = 1800.0
         self.chat: Any = None  # set by M3 (advisor); never receives approval rights
 
@@ -560,17 +559,6 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                     if not name or not token:
                         self._json(400, {"ok": False, "error": "name and token required"})
                         return
-                    if store.node_by_name(name) is None:
-                        # A brand-new machine must prove it was invited. An
-                        # existing name only needs its own token below.
-                        if not hub.join_code:
-                            store.audit(name, "register_rejected", {"reason": "no join_code configured"})
-                            self._json(403, {"ok": False, "error": "registration closed: hub has no join_code"})
-                            return
-                        if str(body.get("join_code") or "") != hub.join_code:
-                            store.audit(name, "register_rejected", {"reason": "bad join code"})
-                            self._json(403, {"ok": False, "error": "invalid join_code"})
-                            return
                     self._json(200, {"ok": True, **store.register(name, token)})
                     return
                 node = self._node(body)
@@ -631,9 +619,6 @@ def serve_hub(cfg_path: str) -> int:
     client = IlinkClient(creds["base_url"], creds["token"])
     hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
     hub.question_ttl_s = float(cfg.get("question_ttl_s", 1800))
-    hub.join_code = str(cfg.get("join_code") or "")
-    if not hub.join_code:
-        log_stderr("[hub] WARNING: no join_code configured - new machines cannot register")
 
     key_file = cfg.get("deepseek_key_file")
     if key_file and Path(key_file).exists():

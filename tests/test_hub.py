@@ -48,7 +48,6 @@ class HubHarness(ArbTestCase):
         self.store = HubStore(self.home / "hub.sqlite3")
         self.wx = FakeWeChat()
         self.hub = Hub(self.store, self.wx, [self.owner])  # type: ignore[arg-type]
-        self.hub.join_code = "TEST-CODE"
         self.httpd = HubServer(("127.0.0.1", 0), make_handler(self.hub))
         self.port = self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -68,9 +67,7 @@ class HubHarness(ArbTestCase):
             return json.loads(resp.read().decode())
 
     def register(self, name: str, token: str = "tok") -> str:
-        return str(self.call("/v1/register", {
-            "name": name, "token": token, "join_code": "TEST-CODE",
-        })["node_id"])
+        return str(self.call("/v1/register", {"name": name, "token": token})["node_id"])
 
     def inbox(self, node_id: str, token: str = "tok", timeout: float = 0.2) -> list[dict]:
         return self.call("/v1/poll", {"node_id": node_id, "token": token, "timeout": timeout})["messages"]
@@ -226,39 +223,6 @@ class TestReplyByIndex(HubHarness):
         self.assertEqual(self.human("1"), "bad_index")
         self.assertEqual(self.inbox(a), [])
         self.assertEqual(self.inbox(b), [])
-
-
-class TestJoinCode(HubHarness):
-    """A stranger who knows the URL must not be able to push to the phone."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.hub.join_code = "SECRET-CODE"
-
-    def test_new_machine_without_the_code_is_refused(self) -> None:
-        for payload in ({}, {"join_code": "wrong"}):
-            with self.assertRaises(urllib.error.HTTPError) as ctx:
-                self.call("/v1/register", {"name": "stranger", "token": "t", **payload})
-            self.assertEqual(ctx.exception.code, 403)
-
-    def test_new_machine_with_the_code_is_accepted(self) -> None:
-        node = self.call("/v1/register", {"name": "laptop3", "token": "t", "join_code": "SECRET-CODE"})
-        self.assertTrue(node["ok"])
-        self.assertTrue(node["node_id"])
-
-    def test_existing_machine_reconnects_with_its_token_alone(self) -> None:
-        first = self.call("/v1/register", {"name": "workbench", "token": "tok", "join_code": "SECRET-CODE"})
-        again = self.call("/v1/register", {"name": "workbench", "token": "tok"})
-        self.assertEqual(again["node_id"], first["node_id"])
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.call("/v1/register", {"name": "workbench", "token": "wrong"})
-        self.assertEqual(ctx.exception.code, 403)
-
-    def test_hub_without_a_code_refuses_every_new_name(self) -> None:
-        self.hub.join_code = ""
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.call("/v1/register", {"name": "nobody", "token": "t"})
-        self.assertEqual(ctx.exception.code, 403)
 
 
 class TestSenderForwarding(HubHarness):

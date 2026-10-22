@@ -618,7 +618,7 @@ def cmd_node_join(args: argparse.Namespace) -> int:
         cfg.hub_fingerprint = wanted
 
     try:
-        reg = post("/v1/register", {"name": name, "token": token, "join_code": args.code})
+        reg = post("/v1/register", {"name": name, "token": token})
     except Exception as exc:
         log_stderr(f"注册失败: {exc}")
         return EXIT_UNAVAILABLE
@@ -628,7 +628,6 @@ def cmd_node_join(args: argparse.Namespace) -> int:
     cfg.hub_node_name = name
     cfg.hub_token = token
     cfg.hub_node_id = str(reg.get("node_id") or "")
-    cfg.hub_join_code = args.code
     cfg.save()
     print(f"已注册为 {name} ({cfg.hub_node_id})，通道切换为 relay")
     print("下一步: arb node setup  (装各家 Agent 插件)  然后 arb start")
@@ -972,7 +971,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--name", default="", help="机器名（默认取 COMPUTERNAME）")
     sp.add_argument("--token", default="", help="节点 token（默认随机生成并保存在本机）")
     sp.add_argument("--fingerprint", default="", help="Hub 自签证书的 SHA-256 指纹（推荐）")
-    sp.add_argument("--code", default="", help="Hub 的加入码（新机器首次注册必需）")
     sp.set_defaults(func=cmd_node_join)
 
     sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")

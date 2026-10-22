@@ -575,7 +575,7 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 pass
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path.startswith("/ui"):
+            if self.path.split("?")[0] in ("/", "/ui") or self.path.split("?")[0].startswith("/ui/"):
                 from urllib.parse import parse_qs, urlparse
 
                 from .hub_ui import handle_ui
@@ -595,7 +595,7 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
             self._json(404, {"ok": False, "error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path.split("?")[0].startswith("/ui"):
+            if self.path.split("?")[0] in ("/", "/ui") or self.path.split("?")[0].startswith("/ui/"):
                 from urllib.parse import parse_qs, urlparse
 
                 from .hub_ui import handle_ui

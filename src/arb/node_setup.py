@@ -179,6 +179,14 @@ def install_codex(home: Path, python_exe: str, codex_exe: str, dry_run: bool = F
 # --------------------------------------------------------------------------
 # DSH: one cordis plugin entry
 # --------------------------------------------------------------------------
+def _pyw(python_exe: str) -> str:
+    """Prefer pythonw: a console interpreter makes DSH spawn a visible window."""
+    from pathlib import Path as _P
+
+    candidate = _P(python_exe).with_name("pythonw.exe")
+    return str(candidate) if candidate.exists() else python_exe
+
+
 def dsh_yaml(home: Path, python_exe: str) -> str:
     """The user patch layer must INSERT a new entry; a bare `- id:` is an
     override and the loader silently skips ids it does not already know
@@ -192,7 +200,7 @@ def dsh_yaml(home: Path, python_exe: str) -> str:
         f"      config:\n"
         f"        serverName: arb\n"
         f"        transport: stdio\n"
-        f"        command: '{python_exe}'\n"
+        f"        command: '{_pyw(python_exe)}'\n"
         f"        args: ['-m', 'arb', 'mcp', '--agent', 'dsh']\n"
         f"        env:\n"
         f"          PYTHONPATH: '{src}'\n"

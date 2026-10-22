@@ -160,3 +160,30 @@ sqlite3 "$env:APPDATA\agent-remote-bridge\arb.sqlite3" "select datetime(ts,'unix
 ```
 
 审计表是最有用的排障材料：谁在什么时候创建/回答/拒绝了哪个问题、投递失败原因、通道健康变化，全在里面。
+
+## 为什么"把程序换成 pythonw"还不够（Windows 弹窗）
+
+现象：每分钟左右弹出一个 Windows Terminal 窗口。
+
+排查（轮询 Win32_Process，250ms 一次，记录新进程的父进程与窗口句柄）：
+
+```
+16:01:20.800  git.exe        parent=python.exe   git -C <repo> rev-parse --abbrev-ref HEAD
+16:01:20.813  conhost.exe    parent=git.exe
+16:01:20.838  WINDOW WindowsTerminal.exe
+```
+
+根因：守护进程已无控制台（pythonw / 无窗口启动），它再拉起 `git.exe`
+（控制台程序）时，Windows 必须**为它新建一个控制台**，Win11 默认交给
+Windows Terminal 显示 —— 于是弹窗。
+
+规则：**任何从无控制台进程派生的子进程都必须带 `CREATE_NO_WINDOW`**。
+本仓库统一用 `arb.util.quiet_kwargs()`：
+
+```python
+subprocess.run(["git", ...], **quiet_kwargs())
+subprocess.Popen([...], creationflags=0x08000000)   # Windows
+```
+
+同样适用于 MCP 服务（`pythonw -m arb mcp`）、hook（`pythonw -c <shim> hook ...`）
+以及任何 `.cmd` 包装器（`.cmd` 会拉起 cmd.exe，本身就闪窗，能不用就不用）。

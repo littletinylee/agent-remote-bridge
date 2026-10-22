@@ -10,7 +10,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 `install.ps1` 做四件事：
 
-1. 检查 Python ≥ 3.9；
+1. 检查 Python ≥ 3.10；
 2. 尝试装可选依赖 `qrcode[pil]`（终端画二维码；装不上不影响运行）；
 3. 在 `%USERPROFILE%\.local\bin` 放一个 `arb.cmd` 垫片（并把该目录加进用户 PATH）；
 4. 运行 `arb init`，打印绑定码。

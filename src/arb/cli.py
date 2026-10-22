@@ -194,7 +194,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ok = ok and flag
         print(f"{'✓' if flag else '✗'} {label}{('  — ' + detail) if detail else ''}")
 
-    line(sys.version_info >= (3, 9), "Python >= 3.9", sys.version.split()[0])
+    line(sys.version_info >= (3, 10), "Python >= 3.10", sys.version.split()[0])
     line(cfg.config_path.exists(), "配置文件存在", str(cfg.config_path))
     try:
         from .store import Store

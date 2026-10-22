@@ -62,7 +62,7 @@
 
 ## 快速开始（Windows）
 
-前置：Python ≥ 3.9（`python --version` 可用即可）。
+前置：Python ≥ 3.10（`python --version` 可用即可）。
 
 ```powershell
 git clone https://github.com/littletinylee/agent-remote-bridge.git

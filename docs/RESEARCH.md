@@ -90,7 +90,7 @@ Apache-2.0，JS，2026-03 后基本停更。但它的 `src/ilink-api.ts` / `src/
 本地 Agent（Claude Code / Codex / DSH / OpenCode / 任意 MCP 客户端）
         │  hooks（事件、审批） + MCP stdio（ask_human 阻塞提问）
         ▼
-agent-remote-bridge 守护进程（Python 3.9+，零第三方依赖，SQLite）
+agent-remote-bridge 守护进程（Python 3.10+，零第三方依赖，SQLite）
         │  出站 HTTPS 长轮询 + sendmessage
         ▼
 ilinkai.weixin.qq.com（腾讯官方 iLink Bot 通道）

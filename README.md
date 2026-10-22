@@ -178,3 +178,32 @@ src/arb/
 MIT。协议实现参考 Tencent [openclaw-weixin](https://github.com/Tencent/openclaw-weixin)（MIT）与
 [wechat-claude-code](https://github.com/Conn-Ho/wechat-claude-code)（Apache-2.0），架构思路参考
 [tlive](https://github.com/y49/tlive)（MIT）。见 [NOTICE](NOTICE)。
+
+## 两种部署形态
+
+**单机**：这台机器直接连微信，零外部依赖。
+
+**多机（Hub）**：一台服务器独占微信连接，各开发机出站连它，手机上看到的消息带 `[机器名]` 前缀。
+
+```
+手机微信 ⟷ iLink ⟷ Hub (ECS, 独占 token+游标, TLS 18443)
+                     ├─ 机器注册表 + 每机独立 inbox（离线缓冲）
+                     ├─ 决策码 → 机器 索引（只路由，从不替人回答）
+                     ├─ DeepSeek 只读顾问（不能批准任何操作）
+                     └─ 主动建议（变化驱动，≤3 次/小时）
+                          ▲ 出站长轮询（开发机不需要公网 IP）
+        ┌─────────────────┼─────────────────┐
+   台式机 workbench    笔记本 laptop2      …
+   (本地 SQLite)       (本地 SQLite)
+```
+
+接入一台新机器只要三条命令：
+
+```bash
+pip install "git+https://github.com/littletinylee/agent-remote-bridge.git"
+arb node-join https://<hub>:18443 --name <机器名> --fingerprint <证书指纹>
+arb node setup && arb start
+```
+
+回复多个同时到达的决策时，**用微信「引用」**那条提问最稳（优先级：引用 > `#CODE` > 唯一待决 > 拒绝猜）。
+

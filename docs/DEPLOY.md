@@ -53,6 +53,25 @@ $set     = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-
 Register-ScheduledTask -TaskName "AgentRemoteBridge" -Action $action -Trigger $trigger -Settings $set
 ```
 
+## 3.5 接入 Claude Code（一条命令）
+
+```powershell
+arb hooks install    # 合并 7 个 hook 事件，先备份原文件；幂等、可撤销
+arb hooks status
+```
+
+再注册 MCP（让 Claude 能主动问你）：
+
+```powershell
+claude mcp add --scope user arb -- "$env:APPDATA\agent-remote-bridge\arb-mcp.cmd" --agent claude-code
+claude mcp list      # 应显示 arb ... Connected
+```
+
+撤销：`arb hooks uninstall` 与 `claude mcp remove arb`。
+
+> 为什么不直接写 `python -m arb hook claude-code`：Claude 启动钩子时不带本仓库的 `PYTHONPATH`，
+> 那条命令会 `ModuleNotFoundError`。`arb hooks install` 生成带环境的 `arb-hook.cmd` / `arb-mcp.cmd`。
+
 ## 4. 日常运维
 
 | 操作 | 命令 |

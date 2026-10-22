@@ -160,7 +160,22 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 - 仍待实测的一步：间隔 ≥1 小时完全不发消息，再执行 `arb test-push`，确认仍然送达。
   这一项被安排在稍后用定时提醒复测，结果会追加到本节。
 
-## 8. 结论
+## 8. 本机部署状态（可审计、可撤销）
+
+| 组件 | 位置 | 撤销方式 |
+|---|---|---|
+| 配置 / 数据库 / 日志 | `%APPDATA%\agent-remote-bridge\` | 删除该目录 |
+| 微信凭据 | 同上 `ilink.json` | `arb logout` |
+| 守护进程 | `127.0.0.1:8848` | `arb stop` |
+| 登录自启 | `…\Startup\AgentRemoteBridge.vbs` + `arb-serve.cmd` | `arb service uninstall` |
+| Claude Code hooks | `~\.claude\settings.json`（7 个事件） | `arb hooks uninstall` |
+| Claude Code MCP | `~\.claude.json`（user scope，`claude mcp list` 显示 `√ Connected`） | `claude mcp remove arb` |
+| 备份 | `settings.json.arb-backup-20261022-122227` | 手工还原 |
+
+部署后做过一次真实自检：用**干净环境**（清空 `PYTHONPATH` / `ARB_HOME`）直接运行
+`arb-hook.cmd`，一条中文 `Notification` 成功入队并送达微信。
+
+## 9. 结论
 
 | 验收项 | 状态 |
 |---|---|
@@ -174,5 +189,6 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 | 渠道异常不会错误批准 | ✅ 测试 + 真机（裸 `1` 被拒） |
 | 断线恢复 | ✅ 测试（重启后 pending 仍可答；投递失败会重试） |
 | 长时间无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
-| 核心代码按里程碑提交 | ✅ 本地 13 个提交（push 待 GitHub 仓库创建） |
+| 核心代码按里程碑提交 | ✅ 本地 18 个提交（push 待 GitHub 仓库创建） |
 | 两种以上 Agent 真实验证 | ✅ Claude Code + Codex，hooks / MCP / CLI 三条路径 |
+| 安装可撤销 | ✅ `arb hooks/service uninstall`、`arb logout`、`claude mcp remove arb` |

@@ -9,6 +9,7 @@ snapshot problem must not affect the bridge.
 from __future__ import annotations
 
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,10 @@ def _git(cwd: str, *args: str) -> str:
 
 def build(cwd: str, store: Any) -> dict[str, Any]:
     snap: dict[str, Any] = {"ts": now(), "cwd": cwd}
+    try:
+        snap["host"] = socket.gethostname()
+    except Exception:
+        snap["host"] = ""
     branch = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
     if branch:
         porcelain = _git(cwd, "status", "--porcelain")
@@ -51,6 +56,14 @@ def build(cwd: str, store: Any) -> dict[str, Any]:
             "answered": stats.get("answered", 0),
         }
         snap["projects"] = sorted({s.get("project") or "" for s in sessions if s.get("project")})[:8]
+        starts = []
+        for s in sessions:
+            for key in ("created_at", "started_at", "started", "first_seen"):
+                value = s.get(key)
+                if isinstance(value, (int, float)) and value > 0:
+                    starts.append(float(value))
+                    break
+        snap["since"] = min(starts) if starts else None
         snap["sessions"] = [
             {"agent": s.get("agent"), "project": s.get("project"), "status": s.get("status")}
             for s in sessions[:5]

@@ -50,6 +50,7 @@ class Advisor:
         self.timeout = timeout
         self.max_per_minute = max_per_minute
         self._calls: list[float] = []
+        self.last_usage: dict[str, int] = {}
         self._lock = threading.Lock()
 
     # -- rate limiting ---------------------------------------------------
@@ -100,6 +101,14 @@ class Advisor:
         req.add_header("Authorization", f"Bearer {self.api_key}")
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             payload = json.loads(resp.read().decode())
+        usage = payload.get("usage") or {}
+        try:
+            self.last_usage = {
+                "prompt": int(usage.get("prompt_tokens") or 0),
+                "completion": int(usage.get("completion_tokens") or 0),
+            }
+        except (TypeError, ValueError):
+            self.last_usage = {}
         return str(((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
 
     def reply(self, text: str, node_names: list[str] | None = None) -> str | None:

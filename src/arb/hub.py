@@ -59,12 +59,16 @@ CREATE TABLE IF NOT EXISTS inbox (
 CREATE INDEX IF NOT EXISTS idx_inbox_node ON inbox(node_id, delivered_at);
 CREATE TABLE IF NOT EXISTS questions (
     code TEXT PRIMARY KEY, node_id TEXT NOT NULL, prompt TEXT, created_at REAL,
-    state TEXT DEFAULT 'pending', msg_id TEXT
+    state TEXT DEFAULT 'pending', msg_id TEXT, project TEXT
 );
 CREATE TABLE IF NOT EXISTS seen (
     msg_id TEXT PRIMARY KEY, at REAL
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, updated_at REAL);
+CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, kind TEXT,
+    prompt_tokens INTEGER, completion_tokens INTEGER
+);
 CREATE TABLE IF NOT EXISTS chat (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, role TEXT, text TEXT
 );
@@ -88,6 +92,8 @@ class HubStore:
         cols = {r['name'] for r in conn.execute("PRAGMA table_info(questions)").fetchall()}
         if 'msg_id' not in cols:  # migrate a hub created before quoted replies
             conn.execute("ALTER TABLE questions ADD COLUMN msg_id TEXT")
+        if 'project' not in cols:
+            conn.execute("ALTER TABLE questions ADD COLUMN project TEXT")
         icols = {r['name'] for r in conn.execute("PRAGMA table_info(inbox)").fetchall()}
         if 'frm' not in icols:  # migrate a hub created before sender forwarding
             conn.execute("ALTER TABLE inbox ADD COLUMN frm TEXT")
@@ -117,6 +123,26 @@ class HubStore:
             "INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
             (now(), actor, action, clean_text(detail if isinstance(detail, str) else json_dumps(detail or {}))),
         )
+
+    # -- token usage -----------------------------------------------------
+    def usage_add(self, kind: str, prompt: int, completion: int) -> None:
+        self.x(
+            "INSERT INTO usage(ts,kind,prompt_tokens,completion_tokens) VALUES(?,?,?,?)",
+            (now(), kind, int(prompt or 0), int(completion or 0)),
+        )
+
+    def usage_today(self) -> dict[str, int]:
+        start = now() - (now() % 86400)
+        row = self.q1(
+            "SELECT COALESCE(SUM(prompt_tokens),0) p, COALESCE(SUM(completion_tokens),0) c, "
+            "COUNT(1) n FROM usage WHERE ts >= ?",
+            (start,),
+        )
+        return {
+            "prompt": int(row["p"]) if row else 0,
+            "completion": int(row["c"]) if row else 0,
+            "calls": int(row["n"]) if row else 0,
+        }
 
     # -- chat log --------------------------------------------------------
     def chat_add(self, role: str, text: str) -> None:
@@ -212,12 +238,14 @@ class HubStore:
             time.sleep(0.2)
 
     # -- questions (routing index only) ----------------------------------
-    def put_question(self, code: str, node_id: str, prompt: str, msg_id: str = "") -> None:
+    def put_question(self, code: str, node_id: str, prompt: str, msg_id: str = "",
+                     project: str = "") -> None:
         self.x(
-            "INSERT INTO questions(code,node_id,prompt,created_at,state,msg_id) VALUES(?,?,?,?,'pending',?) "
+            "INSERT INTO questions(code,node_id,prompt,created_at,state,msg_id,project) "
+            "VALUES(?,?,?,?,'pending',?,?) "
             "ON CONFLICT(code) DO UPDATE SET node_id=excluded.node_id, prompt=excluded.prompt, "
-            "state='pending', msg_id=excluded.msg_id",
-            (code.upper(), node_id, clean_text(prompt), now(), msg_id or None),
+            "state='pending', msg_id=excluded.msg_id, project=excluded.project",
+            (code.upper(), node_id, clean_text(prompt), now(), msg_id or None, project or None),
         )
 
     def resolve(self, code: str) -> sqlite3.Row | None:
@@ -295,14 +323,14 @@ class Hub:
         label = node["name"] if node else node_id
         self.say(f"[{label}] {truncate(text, 1200)}")
 
-    def question_from_node(self, node_id: str, code: str, prompt: str) -> bool:
+    def question_from_node(self, node_id: str, code: str, prompt: str, project: str = "") -> bool:
         node = self.store.node_by_id(node_id)
         label = node["name"] if node else node_id
         out_id = self.say(
             f"🚨 需要你决策  #{code.upper()}\n[{label}]\n{truncate(prompt, 900)}\n"
             f"回复: #{code.upper()} 你的答复（或直接回复选项序号）"
         )
-        self.store.put_question(code, node_id, prompt, out_id)
+        self.store.put_question(code, node_id, prompt, out_id, project)
         if not out_id:
             # The code is indexed, but the human has not been told. The caller
             # must report this so the node can fall back to its own push.
@@ -646,7 +674,9 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                     if not CODE_RE.fullmatch(f"#{code}"):
                         self._json(400, {"ok": False, "error": "bad code"})
                         return
-                    pushed = hub.question_from_node(node["id"], code, str(body.get("prompt") or ""))
+                    pushed = hub.question_from_node(
+                        node["id"], code, str(body.get("prompt") or ""), str(body.get("project") or "")
+                    )
                     self._json(200, {
                         "ok": pushed, "code": code,
                         "error": "" if pushed else "hub could not push to WeChat",

@@ -152,14 +152,19 @@ def login_form(warning: str = "") -> str:
     )
 
 
-def _node_projects(node: dict) -> list[str]:
+def _snapshot_of(node: dict) -> dict:
     snap = node.get("snapshot")
     if not isinstance(snap, str) or not snap:
-        return []
+        return {}
     try:
         obj = json.loads(snap)
     except ValueError:
-        return []
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _node_projects(node: dict) -> list[str]:
+    obj = _snapshot_of(node)
     projects = obj.get("projects")
     if isinstance(projects, list):
         return [str(p) for p in projects if p][:6]
@@ -171,6 +176,8 @@ def project_rows(store: Any) -> list[dict]:
     rows: list[dict] = []
     for node in store.nodes():
         node_pending = [q for q in store.pending() if q["node_id"] == node["id"]]
+        snap = _snapshot_of(node)
+        host = str(snap.get("host") or "").strip()
         projects = _node_projects(node) or [node["name"]]
         for project in projects:
             rows.append({
@@ -180,9 +187,38 @@ def project_rows(store: Any) -> list[dict]:
                 "pending": len(node_pending),
                 "codes": [q["code"] for q in node_pending][:4],
                 "last_seen": node.get("last_seen"),
+                "host": host,
+                "since": snap.get("since"),
             })
     rows.sort(key=lambda r: (-r["pending"], not r["online"], r["project"]))
     return rows
+
+
+def _usage_line(store: Any) -> str:
+    try:
+        u = store.usage_today()
+    except Exception:
+        return ""
+    if not u.get("calls"):
+        return '<div class="none">今日顾问消耗：0（还没有问过）</div>'
+    total = u["prompt"] + u["completion"]
+    return (
+        f'<div class="none">今日顾问消耗：{total:,} tokens（{u["calls"]} 次调用；输入 {u["prompt"]:,} / 输出 {u["completion"]:,}） · 各项目的 token 由 Agent 自身统计，未上报</div>'
+    )
+
+
+def _span(since: Any) -> str:
+    try:
+        secs = int(time.time() - float(since))
+    except (TypeError, ValueError):
+        return "?"
+    if secs < 60:
+        return f"{secs} 秒"
+    if secs < 3600:
+        return f"{secs // 60} 分钟"
+    if secs < 86400:
+        return f"{secs // 3600} 小时 {secs % 3600 // 60} 分"
+    return f"{secs // 86400} 天 {secs % 86400 // 3600} 小时"
 
 
 def _lines(store: Any, selected: str) -> str:
@@ -194,13 +230,16 @@ def _lines(store: Any, selected: str) -> str:
         key = r["machine"]
         sel = " sel" if key == selected else ""
         badge = f'<span class="badge">{r["pending"]} 待决策</span>' if r["pending"] else ""
+        tokens = '<span class="pmeta">tokens —</span>'
         codes = f' #{r["codes"][0]}' if r["codes"] else ""
         out.append(
             f'<a class="line{sel}" href="/?m={_esc(key)}">'
             f'<span class="dot {"on" if r["online"] else "off"}"></span>'
             f'<span class="pname">{_esc(r["project"])}</span>'
-            f'<span class="meta">{_esc(r["machine"])}{_esc(codes)}</span>'
+            f'<span class="meta">{_esc(r["machine"])}{(" · " + _esc(r["host"])) if r["host"] and r["host"].lower() != r["machine"].lower() else ""}{_esc(codes)}</span>'
+            f'<span class="meta">{("已运行 " + _esc(_span(r["since"]))) if r["since"] else ""}</span>'
             f'{badge}'
+            f'{tokens}'
             f'<span class="pmeta">{_esc(_ago(r["last_seen"]))}</span>'
             f'</a>'
         )
@@ -263,7 +302,7 @@ def render(store: Any, message: str = "", warning: str = "", selected: str = "")
     back = '<a class="all" href="/">← 全部</a>' if selected else ""
     return page(
         head
-        + "<h2>项目状态</h2>" + _lines(store, selected)
+        + "<h2>项目状态</h2>" + _usage_line(store) + _lines(store, selected)
         + f"<h2>待回答的问题{back}</h2>" + _questions(store, selected)
         + "<h2>聊天</h2>" + _chat(store)
     )
@@ -315,6 +354,9 @@ def handle_ui(
                 else:
                     try:
                         reply = advisor.reply(text, node_names=[n["name"] for n in store.nodes()])
+                        usage = getattr(advisor, "last_usage", {}) or {}
+                        if usage.get("prompt") or usage.get("completion"):
+                            store.usage_add("advisor", usage.get("prompt", 0), usage.get("completion", 0))
                     except Exception as exc:
                         reply = None
                         store.audit("web-console", "chat_error", {"error": str(exc)[:150]})

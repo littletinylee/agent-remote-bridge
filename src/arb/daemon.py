@@ -296,7 +296,9 @@ class Daemon:
                                 # the WeChat message id for quoted replies), so the node
                                 # must not push a second copy.
                                 hub_pushed = bool(
-                                    self.channel.register_question(q.code, q.prompt)  # type: ignore[attr-defined]
+                                    self.channel.register_question(  # type: ignore[attr-defined]
+                                        q.code, q.prompt, getattr(q, "project", "") or ""
+                                    )
                                 )
                             except Exception:
                                 hub_pushed = False

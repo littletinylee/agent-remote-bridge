@@ -89,11 +89,12 @@ class RelayChannel(Channel):
         self._healthy = True
         return f"hub-{int(time.time() * 1000)}"
 
-    def register_question(self, code: str, prompt: str) -> bool:
+    def register_question(self, code: str, prompt: str, project: str = "") -> bool:
         """Tell the hub which machine owns this code so the answer comes back here."""
         try:
             resp = self._call("/v1/question", {
                 "node_id": self.node_id, "token": self.token, "code": code, "prompt": prompt,
+                "project": project,
             })
             return bool(resp.get("ok"))
         except ChannelError as exc:

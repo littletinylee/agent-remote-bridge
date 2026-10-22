@@ -158,7 +158,9 @@ def load() -> Config:
         cfg = Config()
         cfg.ensure_home()
         return cfg.bootstrap()
-    raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+    # utf-8-sig: Windows editors (Notepad, PowerShell 5 `-Encoding utf8`) like to
+    # prepend a BOM; a hand-edited config must not brick the bridge.
+    raw = json.loads(path.read_text(encoding="utf-8-sig") or "{}")
     cfg = Config.from_dict(raw)
     return cfg.bootstrap()
 
@@ -188,7 +190,7 @@ class IlinkCredentials:
 def load_ilink(cfg: Config) -> IlinkCredentials:
     if not cfg.ilink_path.exists():
         return IlinkCredentials()
-    data = json.loads(cfg.ilink_path.read_text(encoding="utf-8") or "{}")
+    data = json.loads(cfg.ilink_path.read_text(encoding="utf-8-sig") or "{}")
     return IlinkCredentials(
         token=data.get("token", ""),
         account_id=data.get("account_id", ""),

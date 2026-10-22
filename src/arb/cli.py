@@ -394,8 +394,24 @@ def _emit_hook_decision(decision: str, reason: str) -> None:
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
-    """Entry point for agent hooks. Reads the vendor payload from stdin."""
-    raw = sys.stdin.read()
+    """Entry point for agent hooks.
+
+    Vendors differ in how they hand over the event:
+      * Claude Code writes the JSON payload to stdin;
+      * Codex ``notify`` passes the JSON as the last argv element
+        (verified: argv = [.., '{"type":"agent-turn-complete",...}']).
+    Support both, and any extra argv, without guessing.
+    """
+    raw = ""
+    # 1) argv first (Codex notify): avoids ever blocking on an inherited stdin.
+    candidates = [getattr(args, "payload", "") or ""] + list(getattr(args, "rest", []) or [])
+    for cand in candidates:
+        if cand.strip().startswith("{"):
+            raw = cand
+            break
+    # 2) then stdin (Claude Code hooks write JSON and close the pipe).
+    if not raw and not sys.stdin.isatty():
+        raw = sys.stdin.read()
     payload: dict[str, Any] = {}
     if raw.strip():
         try:
@@ -581,8 +597,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("text")
     sp.set_defaults(func=cmd_answer)
 
-    sp = sub.add_parser("hook", help="Agent hook 入口（从 stdin 读取事件）")
+    sp = sub.add_parser("hook", help="Agent hook 入口（stdin 或 argv 传入事件 JSON）")
     sp.add_argument("agent", nargs="?", default="")
+    sp.add_argument("payload", nargs="?", default="", help="Codex notify 把事件 JSON 作为最后一个参数传入")
+    sp.add_argument("rest", nargs="*", default=[])
     sp.set_defaults(func=cmd_hook)
 
     return p

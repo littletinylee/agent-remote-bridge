@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "stage": "done",
+  "details": {
+    "claude_exit": 0,
+    "elapsed_s": 8.2,
+    "approved": true,
+    "artifact_exists": true,
+    "artifact": "E2E-OK",
+    "stats": {
+      "sessions": 1,
+      "active_sessions": 1,
+      "pending_questions": 0,
+      "questions_total": 1,
+      "answered": 1,
+      "expired": 0,
+      "inbound": 1
+    },
+    "sessions": [
+      {
+        "agent": "claude-code",
+        "project": "project",
+        "status": "active"
+      }
+    ],
+    "channel_healthy": true
+  }
+}

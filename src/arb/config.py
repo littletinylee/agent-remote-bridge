@@ -54,6 +54,7 @@ class Config:
     notify_min_interval_s: int = 20
     max_push_chars: int = 1500
     outbox_retry_max_s: int = 300
+    channel_retry_s: int = 30
 
     # approval gate
     approval_mode: str = "notify"  # notify | approve

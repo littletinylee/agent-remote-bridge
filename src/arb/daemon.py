@@ -104,13 +104,20 @@ class Daemon:
         self._notify_history: dict[str, float] = {}
         self._audience = list(self.cfg.owner_ids)
         self._last_channel_error = ""
+        # The daemon's own view of whether the channel is currently running: a
+        # channel that returns from start() without being asked to is down, even
+        # if it forgot to flip its own health flag.
+        self._channel_down = True
+
+    def _channel_healthy(self) -> bool:
+        return (not self._channel_down) and self.channel.healthy()
 
     # -- delivery --------------------------------------------------------
     def _channel_info(self) -> dict[str, Any]:
         """Live channel health for the /status reply."""
         return {
             "name": getattr(self.channel, "name", "unknown"),
-            "healthy": self.channel.healthy(),
+            "healthy": self._channel_healthy(),
             "outbox": self.store.outbox_stats(),
         }
 
@@ -227,6 +234,7 @@ class Daemon:
     # -- loops -----------------------------------------------------------
     def _channel_loop(self) -> None:
         while not self.stop_event.is_set():
+            self._channel_down = False
             try:
                 self.channel.start(self.handle_message, self.stop_event)
             except ChannelError as exc:
@@ -237,6 +245,7 @@ class Daemon:
                 self._last_channel_error = str(exc)
                 log_stderr(f"[channel] crashed: {exc}\n{traceback.format_exc()}")
 
+            self._channel_down = True
             if self.stop_event.is_set():
                 return
             # The channel returned on its own (most often: WeChat token expired,
@@ -246,10 +255,10 @@ class Daemon:
             self._last_channel_error = getattr(self.channel, "auth_error", "") or self._last_channel_error
             self.store.audit("channel_restart_pending", "daemon", {"error": self._last_channel_error})
             log_stderr(
-                "[channel] stopped (%s); retrying in 30s. If this repeats, run `arb login`."
-                % (self._last_channel_error or "no detail")
+                "[channel] stopped (%s); retrying in %ss. If this repeats, run `arb login`."
+                % (self._last_channel_error or "no detail", self.cfg.channel_retry_s)
             )
-            self.stop_event.wait(30)
+            self.stop_event.wait(max(0.05, float(self.cfg.channel_retry_s)))
 
     def _outbox_loop(self) -> None:
         backoff = 1.0
@@ -258,7 +267,7 @@ class Daemon:
             if not rows:
                 self.stop_event.wait(0.25)
                 continue
-            if not self.channel.healthy():
+            if not self._channel_healthy():
                 # holding is correct: never drop a decision notification, and
                 # never treat a delivery failure as an answer.
                 self.stop_event.wait(min(5.0, backoff))
@@ -336,7 +345,7 @@ class Daemon:
 
     # -- http ------------------------------------------------------------
     def status_payload(self) -> dict[str, Any]:
-        healthy = self.channel.healthy()
+        healthy = self._channel_healthy()
         uptime = int(now() - self.started_at)
         # A just-started channel has not completed a long poll yet; calling that
         # "down" would be scary and wrong.

@@ -61,10 +61,10 @@ def build(cwd: str, store: Any) -> dict[str, Any]:
         # the working directories instead and keep only real repositories.
         names: set[str] = set()
         for s in sessions:
-            cwd = (s.get("cwd") or "").strip()
-            if not cwd:
+            s_cwd = (s.get("cwd") or "").strip()
+            if not s_cwd:
                 continue
-            path = Path(cwd)
+            path = Path(s_cwd)
             if not (path / ".git").exists():
                 continue
             name = path.name.strip()

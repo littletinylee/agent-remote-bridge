@@ -56,11 +56,19 @@ def _random_uin() -> str:
     return b64encode(str(num).encode("utf-8")).decode("ascii")
 
 class IlinkError(ChannelError):
-    def __init__(self, message: str, *, status: int = 0, body: str = "", errcode: int = 0):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int = 0,
+        body: str = "",
+        errcode: int = 0,
+        retryable: bool | None = None,
+    ):
         super().__init__(
             message,
             auth_invalid=(status in (401, 403) or errcode == STALE_TOKEN_ERRCODE),
-            retryable=(status == 0 or status >= 500 or status == 429),
+            retryable=(status == 0 or status >= 500 or status == 429) if retryable is None else retryable,
         )
         self.status = status
         self.body = body
@@ -348,6 +356,15 @@ class IlinkChannel(Channel):
 
     # -- inbound loop ----------------------------------------------------
     def start(self, on_message: OnMessage, stop_event: threading.Event) -> None:
+        # Pick up credentials written by a fresh `arb login` (the daemon may have
+        # been running with a dead token while the user re-scanned).
+        fresh = load_ilink(self.cfg)
+        if fresh.token and fresh.token != self.creds.token:
+            self.creds = fresh
+            self.client = IlinkClient(fresh.base_url or self.cfg.ilink_base_url, fresh.token)
+            self._auth_error = ""
+            if self.store is not None:
+                self.store.audit("channel_credentials_reloaded", "channel", {"account": fresh.account_id})
         if not self.creds.token:
             self._set_healthy(False, "not logged in")
             raise ChannelError("WeChat channel not logged in: run `arb login`", auth_invalid=True, retryable=False)

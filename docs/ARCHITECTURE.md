@@ -137,7 +137,7 @@ UPDATE questions SET state='answered', answer=?, answer_by=?, answered_at=?
 | 通道断开 | outbox 挂起，健康标志变红；恢复后自动补发 |
 | 守护进程挂了 | hook 输出 `permissionDecision: "ask"`（回退本机确认）；MCP 返回 `status=unavailable` 且 `approval=false` |
 | 守护进程重启 | 未发送的 outbox 继续发；pending 问题推送一条"重启后仍有 N 个问题" |
-| 凭据失效（-14） | 通道标记 unhealthy + 明确提示 `arb login`；不重试登录 |
+| 凭据失效（-14） | 通道标记 unhealthy 并明确提示；守护进程每 30s 重试一次，**重新 `arb login` 后自动加载新凭据，无需重启**（通道启动时会重读 `ilink.json`） |
 | 重复投递 | `inbound.msg_id` 主键冲突 → 忽略 |
 | 重复回复 | 条件 UPDATE 输掉 → 回"已处理"，审计记录 `answer_rejected_race` |
 | 超时 | 状态置 expired，推送超时通知；危险操作按"拒绝"处理 |

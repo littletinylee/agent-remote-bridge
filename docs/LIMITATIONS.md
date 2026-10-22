@@ -38,6 +38,7 @@
 | 群聊 | 不支持 | 只处理与 bot 的一对一会话 |
 | 多机 | 未实现 | 一个 ARB_HOME 对应一个守护进程；同一 bot 多机需要额外路由 |
 | 长文本 | 1500 字符分段 | 微信无 Markdown 渲染，表格/代码块会被压成纯文本 |
+| 凭据失效（-14） | 自动降级 + 自动恢复 | 通道会标记 unhealthy 并每 30s 重试；重新 `arb login` 后**无需重启**守护进程即可恢复。期间 pending 问题仍可用本机 `arb answer` 回答 |
 | 审批时限 | 受 hook 超时约束 | Claude 的 hook `timeout` 必须 ≥ `approval_timeout_s`，否则先被 Claude 掐断（此时按"本机确认"处理） |
 | MCP 阻塞时长 | 受 MCP 客户端超时约束 | Claude Code 可用 `MCP_TIMEOUT` 调整；也可以改用 `check_answer` 轮询 |
 

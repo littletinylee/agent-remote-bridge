@@ -222,6 +222,49 @@ class TestChannelInbound(ArbTestCase):
             self.assertFalse(channel.healthy())
 
 
+class TestErrorMapping(ArbTestCase):
+    def test_connection_refused_is_retryable_and_not_auth(self) -> None:
+        # nothing listens on this port
+        client = IlinkClient("http://127.0.0.1:9", "tok")
+        with self.assertRaises(IlinkError) as ctx:
+            client.get_updates("", timeout=3)
+        self.assertTrue(ctx.exception.retryable)
+        self.assertFalse(ctx.exception.auth_invalid)
+
+    def test_http_500_is_retryable(self) -> None:
+        with FakeIlink() as fake:
+            fake.fail_send = 1
+            client = IlinkClient(fake.url, "tok")
+            with self.assertRaises(IlinkError) as ctx:
+                client.send_message("u", "x")
+            self.assertTrue(ctx.exception.retryable)
+            self.assertFalse(ctx.exception.auth_invalid)
+
+
+class TestCredentialReload(ArbTestCase):
+    def test_channel_picks_up_credentials_written_after_construction(self) -> None:
+        """A dead daemon + a later `arb login` must recover without a restart."""
+        with FakeIlink() as fake:
+            from arb.channel.ilink import IlinkCredentials
+            from arb.config import save_ilink
+
+            store = Store(self.cfg.db_path)
+            channel = IlinkChannel(self.cfg, store)  # constructed with NO creds
+            self.assertFalse(channel.healthy())
+
+            save_ilink(self.cfg, IlinkCredentials(token="fresh-token", account_id="bot", base_url=fake.url))
+            fake.updates_queue = [inbound_msg("after relogin")]
+            got: list = []
+            stop = threading.Event()
+            t = threading.Thread(target=channel.start, args=(got.append, stop), daemon=True)
+            t.start()
+            self.assertTrue(self.wait_until(lambda: got, timeout=5), "channel must reload creds and poll")
+            stop.set()
+            channel.close()
+            self.assertEqual(got[0].text, "after relogin")
+            self.assertTrue(channel.healthy())
+
+
 class TestChannelOutbound(ArbTestCase):
     def test_send_includes_auth_and_context_token(self) -> None:
         with FakeIlink() as fake:

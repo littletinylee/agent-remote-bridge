@@ -221,16 +221,27 @@ class Daemon:
         while not self.stop_event.is_set():
             try:
                 self.channel.start(self.handle_message, self.stop_event)
-                break  # channel returned: clean stop or terminal auth failure
             except ChannelError as exc:
                 self._last_channel_error = str(exc)
                 self.store.audit("channel_start_failed", "daemon", {"error": str(exc)})
-                log_stderr(f"[channel] {exc}; retrying in 10s")
-                self.stop_event.wait(10)
+                log_stderr(f"[channel] {exc}")
             except Exception as exc:  # pragma: no cover
                 self._last_channel_error = str(exc)
                 log_stderr(f"[channel] crashed: {exc}\n{traceback.format_exc()}")
-                self.stop_event.wait(10)
+
+            if self.stop_event.is_set():
+                return
+            # The channel returned on its own (most often: WeChat token expired,
+            # errcode -14). Never silently run without a channel: keep the daemon
+            # alive, stay visibly unhealthy, and retry - a later `arb login`
+            # rewrites the credentials and the next attempt picks them up.
+            self._last_channel_error = getattr(self.channel, "auth_error", "") or self._last_channel_error
+            self.store.audit("channel_restart_pending", "daemon", {"error": self._last_channel_error})
+            log_stderr(
+                "[channel] stopped (%s); retrying in 30s. If this repeats, run `arb login`."
+                % (self._last_channel_error or "no detail")
+            )
+            self.stop_event.wait(30)
 
     def _outbox_loop(self) -> None:
         backoff = 1.0

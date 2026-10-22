@@ -102,3 +102,13 @@ python3 scripts/hub_ask_once.py --code HUBQ --prompt "..." --option A --option B
 - 微信凭据搬到服务器上了：Hub 只放 bot token，**不放**代码、GitHub 凭据、模型 key。
 - 单 Hub 是单点：它挂了微信就断（各机器的本地状态不受影响，恢复后继续）。
 - 群里不支持，只处理与 bot 的一对一会话。
+
+## 服务器安装：两种方式（2026-10-22 实测）
+
+在 Ubuntu 22.04 / pip 22.0.2 上：
+
+- `pip install "git+https://…"`：pip 打印完 `Preparing metadata (pyproject.toml): done` 后**静默中断**，没有报错也没有安装（疑似该 pip 版本与 PEP 517 后端交互问题，未深究）。
+- **可行方式**：本地 `python -m pip wheel . --no-deps -w dist`，把生成的 wheel 传到服务器，`pip install --no-deps <wheel>`；随后 systemd 的 `ExecStart` 用 `/usr/local/bin/arb hub serve /etc/arb/hub.json`，并删掉 `Environment=PYTHONPATH=`。
+
+当前 ECS 就是第二种方式：`systemctl is-active arb-hub` = active，日志进程名是 `arb[...]`（pip 入口）而不是 `python3 -m arb`，说明已不依赖仓库路径。
+

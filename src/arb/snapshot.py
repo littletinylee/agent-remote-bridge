@@ -8,6 +8,7 @@ snapshot problem must not affect the bridge.
 
 from __future__ import annotations
 
+import re
 import shutil
 import socket
 import subprocess
@@ -55,7 +56,27 @@ def build(cwd: str, store: Any) -> dict[str, Any]:
             "pending_questions": stats.get("pending_questions", 0),
             "answered": stats.get("answered", 0),
         }
-        snap["projects"] = sorted({s.get("project") or "" for s in sessions if s.get("project")})[:8]
+        # A project is a directory that is a git repository. Session labels are
+        # not reliable (temp dirs from tests, version-like names), so we look at
+        # the working directories instead and keep only real repositories.
+        names: set[str] = set()
+        for s in sessions:
+            cwd = (s.get("cwd") or "").strip()
+            if not cwd:
+                continue
+            path = Path(cwd)
+            if not (path / ".git").exists():
+                continue
+            name = path.name.strip()
+            if not name or re.fullmatch(r"[vV]?\d+(\.\d+)*", name):
+                continue
+            if name.lower().startswith(("arb-verify-", "arb-hub-", "arb-quote-", "arb-auto-", "arb-final-")):
+                continue
+            names.add(name)
+        here = Path(cwd or "")
+        if cwd and (here / ".git").exists() and here.name:
+            names.add(here.name)
+        snap["projects"] = sorted(names)[:6]
         starts = []
         for s in sessions:
             for key in ("created_at", "started_at", "started", "first_seen"):

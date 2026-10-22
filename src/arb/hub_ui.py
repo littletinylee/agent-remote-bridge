@@ -181,7 +181,7 @@ def project_rows(store: Any) -> list[dict]:
         projects = _node_projects(node) or [node["name"]]
         for project in projects:
             rows.append({
-                "project": project,
+                "project": "" if project == node["name"] else project,
                 "machine": node["name"],
                 "online": bool(node.get("online")),
                 "pending": len(node_pending),
@@ -235,7 +235,7 @@ def _lines(store: Any, selected: str) -> str:
         out.append(
             f'<a class="line{sel}" href="/?m={_esc(key)}">'
             f'<span class="dot {"on" if r["online"] else "off"}"></span>'
-            f'<span class="pname">{_esc(r["project"])}</span>'
+            f'<span class="pname">{_esc(r["project"] or "(未上报项目)")}</span>'
             f'<span class="meta">{_esc(r["machine"])}{(" · " + _esc(r["host"])) if r["host"] and r["host"].lower() != r["machine"].lower() else ""}{_esc(codes)}</span>'
             f'<span class="meta">{("已运行 " + _esc(_span(r["since"]))) if r["since"] else ""}</span>'
             f'{badge}'

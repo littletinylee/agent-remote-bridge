@@ -10,7 +10,7 @@ import unittest
 from helpers import ArbTestCase
 
 from arb import mcp
-from arb.client import ApiError, DaemonUnavailable
+from arb.client import DaemonUnavailable
 
 
 class FakeClient:

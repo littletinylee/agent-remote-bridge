@@ -4,7 +4,6 @@ never-ending failure must stay visible instead of silently going quiet.
 
 from __future__ import annotations
 
-import threading
 import time
 import unittest
 

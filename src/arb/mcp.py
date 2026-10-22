@@ -117,7 +117,7 @@ class McpServer:
     def ensure_session(self) -> dict[str, Any]:
         if self.session is not None:
             return self.session
-        info = self.client.ensure()
+        self.client.ensure()
         self.session = self.client.session(
             agent=self.ctx["agent"],
             project=self.ctx["project"],

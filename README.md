@@ -146,10 +146,14 @@ python -m arb ask "用 Postgres 还是 SQLite?" --option Postgres --option SQLit
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
-python -m unittest discover -s tests -p "test_*.py"       # 74 个离线测试
-python scripts\e2e_claude.py                              # 真实 Claude Code
+python -m unittest discover -s tests -p "test_*.py"       # 112 个离线测试
+ruff check src tests scripts                              # 可选：风格与明显错误
+python scripts\e2e_claude.py                              # 真实 Claude Code（hooks）
+python scripts\e2e_claude_mcp.py                          # 真实 Claude Code（MCP）
 python scripts\e2e_codex.py                               # 真实 Codex
 python scripts\e2e_concurrent.py                          # 并发验收
+python scripts\soak.py --seconds 60                       # 压力/泄漏
+python scripts\verify.py                                  # 一键体检快照
 ```
 
 代码结构：

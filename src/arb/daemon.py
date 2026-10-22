@@ -14,7 +14,6 @@ re-delivers anything unsent and keeps every pending decision answerable.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import sys
 import threading
@@ -29,7 +28,7 @@ from .channel.base import Channel, ChannelError, InboundMessage
 from .config import Config, load, load_ilink
 from .router import Router
 from .store import Question, Store
-from .util import iso, json_dumps, json_loads, log_stderr, new_id, now, one_line, secret_compare, truncate
+from .util import json_dumps, json_loads, log_stderr, new_id, now, one_line, secret_compare
 
 VERSION = "0.4.0"
 

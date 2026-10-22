@@ -146,7 +146,7 @@ class TestNoCrosstalk(RouterHarness):
     def test_second_answer_is_rejected(self) -> None:
         qa = self.ask_a()
         self.assertEqual(self.router.handle_inbound(self.inbound(f"#{qa.code} 1")), f"answered:{qa.code}")
-        self.assertEqual(self.router.handle_inbound(self.inbound(f"#{qa.code} 2")), f"not_pending:answered")
+        self.assertEqual(self.router.handle_inbound(self.inbound(f"#{qa.code} 2")), "not_pending:answered")
         self.assertEqual(self.store.get_question(qa.id).answer, "允许", "first answer must win")
 
     def test_expired_question_reply_is_rejected(self) -> None:

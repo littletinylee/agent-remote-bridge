@@ -6,8 +6,8 @@ machine with nothing but Python 3.9+.
 
 from __future__ import annotations
 
-import json
 import hmac
+import json
 import os
 import random
 import re

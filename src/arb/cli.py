@@ -11,11 +11,9 @@ Exit codes are meaningful so hooks and scripts can branch on them:
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import os
 import re
-import socket
 import sys
 import time
 import traceback
@@ -24,8 +22,8 @@ from typing import Any
 
 from . import __version__, agents
 from .client import ApiError, Client, DaemonUnavailable
-from .config import Config, clear_ilink, load, load_ilink, save_ilink
-from .util import json_dumps, log_stderr, now, one_line, truncate
+from .config import Config, clear_ilink, load, load_ilink
+from .util import json_dumps, log_stderr, now, one_line
 
 EXIT_OK = 0
 EXIT_USAGE = 2

@@ -15,6 +15,7 @@ dependencies = []
 
 [project.optional-dependencies]
 qr = ["qrcode>=7.4"]
+dev = ["ruff>=0.6"]
 
 [project.scripts]
 arb = "arb.cli:main"
@@ -24,3 +25,17 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+# Deliberately narrow: correctness (F/E9) + style basics. The daemon and the
+# HTTP handler legitimately catch broad exceptions, so BLE/S110 stay off.
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Chinese prose in docs/comments exceeds 120 columns
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests import helpers before adding src to sys.path
+

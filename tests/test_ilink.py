@@ -165,10 +165,10 @@ class TestChannelInbound(ArbTestCase):
         stop = threading.Event()
         t = threading.Thread(target=channel.start, args=(received.append, stop), daemon=True)
         t.start()
-        ok = self.wait_until(lambda: received, timeout=5)
+        self.wait_until(lambda: received, timeout=5)
         stop.set()
         channel.close()
-        return channel, received if ok else received
+        return channel, received
 
     def test_receives_user_message_and_ignores_bot_echo(self) -> None:
         with FakeIlink() as fake:
@@ -218,7 +218,8 @@ class TestChannelInbound(ArbTestCase):
             t.start()
             t.join(timeout=5)
             self.assertFalse(t.is_alive(), "channel must stop on errcode -14")
-            self.assertIn("重新", channel.auth_error + "重新" if channel.auth_error else "重新")
+            self.assertTrue(channel.auth_error, "auth_error must explain that a re-login is needed")
+            self.assertIn("arb login", channel.auth_error)
             self.assertFalse(channel.healthy())
 
 

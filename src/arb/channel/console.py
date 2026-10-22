@@ -11,7 +11,6 @@ import queue
 import sys
 import threading
 import time
-from typing import Callable
 
 from ..util import new_id
 from .base import Channel, ChannelError, InboundMessage, OnMessage

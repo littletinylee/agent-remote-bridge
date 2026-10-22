@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import re
 import shutil
 import subprocess
@@ -148,7 +147,7 @@ def main() -> int:
             if m and "需要你决策" in line and not answered.is_set():
                 code = m.group(1)
                 time.sleep(0.3)
-                reply = f"yes\n"
+                reply = "yes\n"
                 print(f"[human] -> {reply.strip()}  (approving #{code})")
                 answers.append(f"yes #{code}")
                 daemon.stdin.write(reply)  # type: ignore[union-attr]

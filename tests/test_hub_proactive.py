@@ -53,6 +53,48 @@ class TestGate(unittest.TestCase):
         self.assertIsNone(evaluate(st, "", 0)[0])
 
 
+class TestRestartAndStaleNodes(ArbTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.store = HubStore(self.home / "hub.sqlite3")
+        self.sent: list[str] = []
+
+        class FakeHub:
+            def say(inner, text):  # noqa: N805
+                self.sent.append(text)
+                return "m1"
+
+        self.hub = FakeHub()
+
+    def test_a_restart_does_not_repeat_advice(self) -> None:
+        self.store.register("a", "t1")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        first = Proposer(self.hub, self.store, interval=0.01)
+        self.assertTrue(first.tick())
+        # a new instance == a hub restart
+        second = Proposer(self.hub, self.store, interval=0.01)
+        self.assertIsNone(second.tick(), "restart must not re-send the same advice")
+        self.assertEqual(len(self.sent), 1)
+
+    def test_hourly_budget_survives_a_restart(self) -> None:
+        prop = Proposer(self.hub, self.store, interval=0.01)
+        prop._sent = [time.time()] * 3
+        prop._persist()
+        fresh = Proposer(self.hub, self.store, interval=0.01)
+        self.assertEqual(len(fresh._sent), 3)
+        self.store.register("a", "t1")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        self.assertIsNone(fresh.tick(), "budget must persist across restarts")
+
+    def test_a_long_dead_registration_is_not_reported(self) -> None:
+        st = state([{"name": "ops", "online": False, "last_seen": time.time() - 7200}])
+        self.assertIsNone(evaluate(st, "", 0)[0])
+
+    def test_a_recently_dropped_machine_is_reported(self) -> None:
+        st = state([{"name": "laptop2", "online": False, "last_seen": time.time() - 60}])
+        self.assertIn("laptop2", evaluate(st, "", 0)[0] or "")
+
+
 class TestProposer(ArbTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -68,7 +110,7 @@ class TestProposer(ArbTestCase):
 
     def test_tick_sends_at_most_once_per_change(self) -> None:
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen=0")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
         first = self.prop.tick()
         second = self.prop.tick()
         self.assertTrue(first)
@@ -77,7 +119,7 @@ class TestProposer(ArbTestCase):
 
     def test_audit_records_what_was_said(self) -> None:
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen=0")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
         self.prop.tick()
         actions = [r["action"] for r in self.store.q("SELECT action FROM audit")]
         self.assertIn("sent", actions)

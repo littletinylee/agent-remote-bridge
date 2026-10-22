@@ -47,7 +47,15 @@ def evaluate(state: dict[str, Any], last_signal: str, sent_last_hour: int) -> tu
         return None, last_signal
 
     now = state.get("now") or time.time()
-    offline = [n["name"] for n in state.get("nodes", []) if not n.get("online")]
+    # Only a machine that was alive recently and just dropped is news; a
+    # registration that never came back (an ops probe, a retired laptop)
+    # would otherwise be reported forever.
+    offline = [
+        n["name"]
+        for n in state.get("nodes", [])
+        if not n.get("online")
+        and (n.get("last_seen") is None or now - float(n["last_seen"]) < 1800)
+    ]
     long_wait = [p for p in state.get("pending", []) if now - (p.get("created_at") or now) > LONG_WAIT_S]
     dirty = [
         (n["name"], (n.get("snapshot") or ""))
@@ -76,8 +84,9 @@ class Proposer:
         self.store = store
         self.interval = interval
         self.advise = advise
-        self._last_signal = ""
-        self._sent: list[float] = []
+        # Persisted so a restart neither repeats itself nor resets the budget.
+        self._last_signal = self._kv("proactive.signal", "")
+        self._sent = [float(t) for t in json.loads(self._kv("proactive.sent", "[]") or "[]")]
         self._stop = threading.Event()
 
     def snapshot_state(self) -> dict[str, Any]:
@@ -86,10 +95,24 @@ class Proposer:
             nodes.append({
                 "name": n["name"],
                 "online": n.get("online"),
+                "last_seen": n.get("last_seen"),
                 "snapshot": ((n.get("snapshot") or "") if isinstance(n.get("snapshot"), str) else "")
                 and (json.loads(n["snapshot"]).get("summary") if n.get("snapshot") else ""),
             })
         return {"nodes": nodes, "pending": self.store.pending(), "now": time.time()}
+
+    def _kv(self, key: str, default: str) -> str:
+        try:
+            return self.store.kv_get(key, default)
+        except Exception:
+            return default
+
+    def _persist(self) -> None:
+        try:
+            self.store.kv_set("proactive.signal", self._last_signal)
+            self.store.kv_set("proactive.sent", json.dumps(self._sent[-20:]))
+        except Exception:
+            pass
 
     def tick(self) -> str | None:
         now = time.time()
@@ -99,6 +122,7 @@ class Proposer:
             self._sent.append(now)
             self.hub.say(text)
             self.store.audit("proactive", "sent", {"text": text[:120]})
+        self._persist()
         return text
 
     def run(self) -> None:

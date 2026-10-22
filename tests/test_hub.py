@@ -171,6 +171,26 @@ class TestDecisionRouting(HubHarness):
         self.assertEqual(len(self.inbox(a)), 1)
 
 
+class TestSenderForwarding(HubHarness):
+    def test_inbox_carries_the_real_wechat_sender(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
+        self.assertEqual(self.human("#AB34 yes"), "forwarded")
+        msg = self.inbox(a)[0]
+        self.assertEqual(msg["frm"], self.owner, "the node re-checks this against its own allowlist")
+
+    def test_direct_message_also_carries_the_sender(self) -> None:
+        a = self.register("machine-a")
+        self.human("/m machine-a 跑一下测试")
+        self.assertEqual(self.inbox(a)[0]["frm"], self.owner)
+
+    def test_unknown_sender_is_never_forwarded(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
+        self.assertEqual(self.hub.handle_human("x", "stranger", "#AB34 yes"), "unauthorized")
+        self.assertEqual(self.inbox(a), [])
+
+
 class TestIsolationAndBuffering(HubHarness):
     def test_cross_machine_traffic_is_isolated(self) -> None:
         a = self.register("machine-a")

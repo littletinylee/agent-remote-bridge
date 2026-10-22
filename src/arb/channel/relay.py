@@ -100,12 +100,28 @@ class RelayChannel(Channel):
             log_stderr(f"[relay] register_question failed: {exc}")
             return False
 
+    def _snapshot_cwd(self) -> str:
+        """The daemon often runs from the user's home; report the project instead.
+
+        Prefer the newest session's working directory (that is where the agent
+        actually works), falling back to our own cwd.
+        """
+        try:
+            sessions = self.store.list_sessions(limit=5) if self.store is not None else []
+            for s in sessions:
+                cwd = (s.get("cwd") or "").strip()
+                if cwd and os.path.isdir(cwd):
+                    return cwd
+        except Exception:
+            pass
+        return os.getcwd()
+
     def send_snapshot(self) -> None:
         """Publish a factual snapshot so the hub's advisor can answer questions."""
         try:
             from .. import snapshot as snap_mod
 
-            snap = snap_mod.build(os.getcwd(), self.store)
+            snap = snap_mod.build(self._snapshot_cwd(), self.store)
             self._call("/v1/snapshot", {
                 "node_id": self.node_id, "token": self.token,
                 "snapshot": snap, "projects": snap.get("projects") or [],

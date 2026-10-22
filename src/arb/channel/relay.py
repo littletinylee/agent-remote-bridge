@@ -107,11 +107,16 @@ class RelayChannel(Channel):
         actually works), falling back to our own cwd.
         """
         try:
-            sessions = self.store.list_sessions(limit=5) if self.store is not None else []
-            for s in sessions:
-                cwd = (s.get("cwd") or "").strip()
-                if cwd and os.path.isdir(cwd):
-                    return cwd
+            sessions = self.store.list_sessions(limit=8) if self.store is not None else []
+            dirs = [(s.get("cwd") or "").strip() for s in sessions]
+            dirs = [d for d in dirs if d and os.path.isdir(d)]
+            # A repo is far more informative than a scratch directory, and the
+            # newest session is often a temp dir from a test run.
+            for d in dirs:
+                if os.path.isdir(os.path.join(d, ".git")):
+                    return d
+            if dirs:
+                return dirs[0]
         except Exception:
             pass
         return os.getcwd()

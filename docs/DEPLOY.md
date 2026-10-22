@@ -30,23 +30,27 @@ arb status       # 看绑定码 / 通道健康
 
 > Bot 协议只在**你先发过一条消息**之后才拿得到你的 `user_id`，所以这一步不能省。
 
-## 3. 开机自启
-
-推荐"登录时启动"而不是"开机启动"（需要用户会话）。
-
-**任务计划程序（推荐）**
+## 3. 开机自启（已实现，一条命令）
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument '/c "C:\Users\<you>\.local\bin\arb.cmd" start'
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName "AgentRemoteBridge" -Action $action -Trigger $trigger -RunLevel Limited
+arb service install      # 装到当前用户的启动文件夹（免管理员权限）
+arb service status       # 看是否安装
+arb service uninstall    # 移除
 ```
 
-**或者**把快捷方式放进 `shell:startup`：
+它会在 `%APPDATA%\agent-remote-bridge\arb-serve.cmd` 写一个前台启动脚本，并在
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\` 放一个隐藏窗口的 `.vbs` 启动项。
+下次登录 Windows 时会悄悄把守护进程拉起来。**本机已实测**：停掉守护进程 → 运行该启动项 → `arb status` 恢复健康。
+
+为什么不用 `schtasks /SC ONLOGON`：那条命令需要管理员权限（实测返回 `Access is denied`），
+而启动文件夹方案不需要。若你要"崩溃自动重启"，再用管理员权限建任务计划替代 `.vbs`：
 
 ```powershell
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\arb.lnk")
-$s.TargetPath = "$env:USERPROFILE\.local\bin\arb.cmd"; $s.Arguments = "start"; $s.Save()
+# 需要管理员终端
+$action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument '/c "%APPDATA%\agent-remote-bridge\arb-serve.cmd"'
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$set     = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName "AgentRemoteBridge" -Action $action -Trigger $trigger -Settings $set
 ```
 
 ## 4. 日常运维

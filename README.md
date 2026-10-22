@@ -74,6 +74,7 @@ arb login                                  # 手机微信扫码
 arb start                                  # 后台起守护进程
 # 在微信里给机器人发： /pair <绑定码>
 arb test-push                              # 主动推送自检
+arb service install                        # 可选：登录 Windows 时自动启动（免管理员）
 ```
 
 想直接在终端画二维码：`python -m pip install "qrcode[pil]"`（可选）。

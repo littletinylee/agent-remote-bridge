@@ -19,6 +19,7 @@ import socket
 import sys
 import time
 import traceback
+from pathlib import Path
 from typing import Any
 
 from . import agents
@@ -372,6 +373,76 @@ def cmd_paircode(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_service(args: argparse.Namespace) -> int:
+    """Logon autostart for the daemon.
+
+    Windows: a hidden launcher in the user's Startup folder - no admin rights
+    needed (schtasks ONLOGON requires elevation). Linux: prints a systemd unit
+    for the operator to install, since writing it needs root.
+    """
+    cfg = _cfg()
+    if os.name != "nt":
+        print("arb service 只支持 Windows 自动安装。Linux 请用 systemd：")
+        print()
+        print("[Unit]")
+        print("Description=Agent Remote Bridge")
+        print("After=network-online.target")
+        print()
+        print("[Service]")
+        print(f"Environment=ARB_HOME={cfg.home}")
+        print(f"ExecStart={sys.executable} -m arb serve")
+        print("Restart=always")
+        print("RestartSec=10")
+        print()
+        print("[Install]")
+        print("WantedBy=default.target")
+        return EXIT_USAGE
+
+    startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    launcher = startup / "AgentRemoteBridge.vbs"
+    wrapper = cfg.home / "arb-serve.cmd"
+    repo_src = Path(__file__).resolve().parents[1].as_posix()
+
+    if args.action == "install":
+        cfg.ensure_home()
+        wrapper.write_text(
+            "@echo off\n"
+            f'if not defined ARB_HOME set "ARB_HOME={cfg.home}"\n'
+            f'set "PYTHONPATH={repo_src};%PYTHONPATH%"\n'
+            f'"{sys.executable}" -m arb serve\n',
+            encoding="ascii",
+        )
+        startup.mkdir(parents=True, exist_ok=True)
+        # 0 = hidden window, False = do not wait
+        launcher.write_text(
+            'CreateObject("WScript.Shell").Run """' + str(wrapper) + '""", 0, False\n',
+            encoding="ascii",
+        )
+        print("✅ 已安装登录自启（无需管理员权限）")
+        print(f"   启动脚本: {wrapper}")
+        print(f"   自启项:   {launcher}")
+        print("   下次登录 Windows 时会隐藏运行 arb serve。")
+        print("   现在启动: arb start    移除: arb service uninstall")
+        if not cfg.owner_ids:
+            print("   提醒: 还没有绑定微信，先 arb login 并 /pair。")
+        return EXIT_OK
+
+    if args.action == "uninstall":
+        removed = False
+        if launcher.exists():
+            launcher.unlink()
+            removed = True
+        print("已移除登录自启。" if removed else "没有找到自启项。")
+        return EXIT_OK
+
+    if launcher.exists():
+        print(f"登录自启: 已安装 → {launcher}")
+        print(f"启动脚本: {wrapper} ({'存在' if wrapper.exists() else '缺失，请重新 install'})")
+    else:
+        print("登录自启: 未安装 (arb service install)")
+    return EXIT_OK
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
     """Toggle the remote approval gate without hand-editing JSON."""
     cfg = _cfg()
@@ -604,6 +675,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("approval", help="开关远程审批（on/off/status）")
     sp.add_argument("mode", nargs="?", default="status", choices=["on", "off", "status"])
     sp.set_defaults(func=cmd_approval)
+
+    sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")
+    sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])
+    sp.set_defaults(func=cmd_service)
     sub.add_parser("test-push", help="发送一条测试推送").set_defaults(func=cmd_test_push)
     sub.add_parser("pending", help="列出待处理问题").set_defaults(func=cmd_pending)
     sub.add_parser("sessions", help="列出会话").set_defaults(func=cmd_sessions)

@@ -1,0 +1,534 @@
+"""Agent Remote Bridge Hub - the single owner of the WeChat bot connection.
+
+Why this exists: the iLink bot token is one credential with one shared cursor,
+so exactly one process may long-poll it. When several dev machines must share a
+bot, this hub is that one process; every machine connects *out* to the hub.
+
+Safety invariants (mirrored in the tests):
+  * the hub never answers a decision - it only forwards text between the human
+    and the machine that asked;
+  * decisions are routed by question code only; an unknown or ambiguous target
+    is refused, never guessed;
+  * a message from machine A can never reach machine B;
+  * the chat/advisor layer (M3) may read snapshots and talk, but it is never
+    given a path that could approve anything.
+
+Wire protocol (JSON over TLS, per-node bearer token):
+  POST /v1/register   {name, token}                -> {node_id, name}
+  POST /v1/poll       {node_id, timeout}           -> {messages: [{kind, text, code?}]}
+  POST /v1/send       {node_id, text, kind, question?}
+  POST /v1/question   {node_id, code, prompt}      -> {code}
+  POST /v1/snapshot   {node_id, snapshot}
+  POST /v1/heartbeat  {node_id, status}
+  GET  /v1/health
+  GET  /v1/machines
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import ssl
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+from .channel.ilink import IlinkClient
+from .util import clean_text, gen_secret, json_dumps, log_stderr, now, truncate
+
+VERSION = "0.1.0"
+DEFAULT_PORT = 18443
+CODE_RE = re.compile(r"#([2-9A-HJ-NP-Z]{4})\b", re.I)
+
+SCHEMA = """
+PRAGMA journal_mode=WAL;
+CREATE TABLE IF NOT EXISTS nodes (
+    id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, token_hash TEXT NOT NULL,
+    projects TEXT, last_seen REAL, status TEXT DEFAULT 'unknown',
+    snapshot TEXT
+);
+CREATE TABLE IF NOT EXISTS inbox (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, kind TEXT NOT NULL,
+    text TEXT NOT NULL, code TEXT, created_at REAL NOT NULL, delivered_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_inbox_node ON inbox(node_id, delivered_at);
+CREATE TABLE IF NOT EXISTS questions (
+    code TEXT PRIMARY KEY, node_id TEXT NOT NULL, prompt TEXT, created_at REAL, state TEXT DEFAULT 'pending'
+);
+CREATE TABLE IF NOT EXISTS seen (
+    msg_id TEXT PRIMARY KEY, at REAL
+);
+CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, updated_at REAL);
+CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, actor TEXT, action TEXT, detail TEXT
+);
+"""
+
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+class HubStore:
+    def __init__(self, path: str | Path):
+        self.path = str(path)
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._local = threading.local()
+        conn = self.conn()
+        conn.executescript(SCHEMA)
+        conn.commit()
+
+    def conn(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(self.path, timeout=30.0, isolation_level=None, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            self._local.conn = conn
+        return conn
+
+    def q(self, sql: str, args: tuple = ()) -> list[sqlite3.Row]:
+        return list(self.conn().execute(sql, args).fetchall())
+
+    def q1(self, sql: str, args: tuple = ()) -> sqlite3.Row | None:
+        return self.conn().execute(sql, args).fetchone()
+
+    def x(self, sql: str, args: tuple = ()) -> int:
+        return self.conn().execute(sql, args).rowcount
+
+    def audit(self, actor: str, action: str, detail: Any = None) -> None:
+        self.x(
+            "INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+            (now(), actor, action, clean_text(detail if isinstance(detail, str) else json_dumps(detail or {}))),
+        )
+
+    def kv_get(self, k: str, default: str = "") -> str:
+        row = self.q1("SELECT v FROM kv WHERE k=?", (k,))
+        return row["v"] if row else default
+
+    def kv_set(self, k: str, v: str) -> None:
+        self.x(
+            "INSERT INTO kv(k,v,updated_at) VALUES(?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at",
+            (k, v, now()),
+        )
+
+    # -- nodes -----------------------------------------------------------
+    def register(self, name: str, token: str) -> dict[str, Any]:
+        existing = self.q1("SELECT * FROM nodes WHERE name=?", (name,))
+        if existing:
+            if existing["token_hash"] != _hash(token):
+                raise PermissionError("node name已注册且 token 不匹配")
+            self.x("UPDATE nodes SET last_seen=? WHERE id=?", (now(), existing["id"]))
+            return {"node_id": existing["id"], "name": name}
+        node_id = gen_secret(8).replace("-", "").replace("_", "")
+        self.x(
+            "INSERT INTO nodes(id,name,token_hash,projects,last_seen,status) VALUES(?,?,?,'[]',?,'online')",
+            (node_id, name, _hash(token), now()),
+        )
+        self.audit("hub", "node_registered", {"node": name, "id": node_id})
+        return {"node_id": node_id, "name": name}
+
+    def node_by_id(self, node_id: str) -> sqlite3.Row | None:
+        return self.q1("SELECT * FROM nodes WHERE id=?", (node_id,))
+
+    def node_by_name(self, name: str) -> sqlite3.Row | None:
+        return self.q1("SELECT * FROM nodes WHERE name=?", (name,))
+
+    def auth(self, node_id: str, token: str) -> sqlite3.Row | None:
+        row = self.node_by_id(node_id)
+        if row and row["token_hash"] == _hash(token):
+            return row
+        return None
+
+    def touch(self, node_id: str, status: str | None = None) -> None:
+        if status:
+            self.x("UPDATE nodes SET last_seen=?, status=? WHERE id=?", (now(), status, node_id))
+        else:
+            self.x("UPDATE nodes SET last_seen=? WHERE id=?", (now(), node_id))
+
+    def nodes(self) -> list[dict[str, Any]]:
+        out = []
+        for r in self.q("SELECT * FROM nodes ORDER BY last_seen DESC"):
+            d = dict(r)
+            d.pop("token_hash", None)
+            d["online"] = bool(d.get("last_seen") and now() - d["last_seen"] < 90)
+            out.append(d)
+        return out
+
+    # -- inbox -----------------------------------------------------------
+    def push(self, node_id: str, text: str, kind: str = "reply", code: str | None = None) -> int | None:
+        self.x(
+            "INSERT INTO inbox(node_id,kind,text,code,created_at) VALUES(?,?,?,?,?)",
+            (node_id, kind, clean_text(text), code, now()),
+        )
+        row = self.q1("SELECT last_insert_rowid() AS id")
+        return int(row["id"]) if row else None
+
+    def take(self, node_id: str, timeout: float) -> list[dict[str, Any]]:
+        deadline = now() + max(0.0, timeout)
+        while True:
+            rows = self.q(
+                "SELECT * FROM inbox WHERE node_id=? AND delivered_at IS NULL ORDER BY seq LIMIT 20", (node_id,)
+            )
+            if rows:
+                self.x(
+                    "UPDATE inbox SET delivered_at=? WHERE node_id=? AND delivered_at IS NULL",
+                    (now(), node_id),
+                )
+                return [{"kind": r["kind"], "text": r["text"], "code": r["code"]} for r in rows]
+            if now() >= deadline:
+                return []
+            time.sleep(0.2)
+
+    # -- questions (routing index only) ----------------------------------
+    def put_question(self, code: str, node_id: str, prompt: str) -> None:
+        self.x(
+            "INSERT INTO questions(code,node_id,prompt,created_at,state) VALUES(?,?,?,?,'pending') "
+            "ON CONFLICT(code) DO UPDATE SET node_id=excluded.node_id, prompt=excluded.prompt",
+            (code.upper(), node_id, clean_text(prompt), now()),
+        )
+
+    def resolve(self, code: str) -> sqlite3.Row | None:
+        return self.q1("SELECT * FROM questions WHERE code=?", (code.upper(),))
+
+    def pending(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.q("SELECT * FROM questions WHERE state='pending' ORDER BY created_at")]
+
+    def close_question(self, code: str) -> None:
+        self.x("UPDATE questions SET state='closed' WHERE code=?", (code.upper(),))
+
+
+class Hub:
+    """Routes between the one WeChat conversation and N machines."""
+
+    def __init__(self, store: HubStore, client: IlinkClient, owner_ids: list[str], hub_name: str = "hub"):
+        self.store = store
+        self.client = client
+        self.owner_ids = owner_ids
+        self.name = hub_name
+        self._stop = threading.Event()
+        self._ctx: dict[str, str] = {}
+        self.chat: Any = None  # set by M3 (advisor); never receives approval rights
+
+    # -- outbound to WeChat ---------------------------------------------
+    def say(self, text: str) -> bool:
+        for user in self.owner_ids:
+            ctx = self._ctx.get(user) or self.store.kv_get(f"ctx.{user}", "")
+            try:
+                resp = self.client.send_message(user, clean_text(text), context_token=ctx)
+            except Exception as exc:
+                self.store.audit("hub", "send_failed", {"error": str(exc)[:200]})
+                return False
+            if int(resp.get("errcode", 0) or 0) == -14:
+                self.store.audit("hub", "token_expired", {})
+                return False
+        return True
+
+    def push_from_node(self, node_id: str, text: str, kind: str = "notify", code: str | None = None) -> None:
+        node = self.store.node_by_id(node_id)
+        label = node["name"] if node else node_id
+        self.say(f"[{label}] {truncate(text, 1200)}")
+
+    def question_from_node(self, node_id: str, code: str, prompt: str) -> None:
+        node = self.store.node_by_id(node_id)
+        label = node["name"] if node else node_id
+        self.store.put_question(code, node_id, prompt)
+        self.say(f"🚨 需要你决策  #{code.upper()}\n[{label}]\n{truncate(prompt, 900)}\n回复: #{code.upper()} 你的答复")
+
+    # -- inbound from WeChat --------------------------------------------
+    def handle_human(self, msg_id: str, from_user: str, text: str, context_token: str = "") -> str:
+        if self.store.q1("SELECT 1 FROM seen WHERE msg_id=?", (msg_id,)):
+            return "duplicate"
+        self.store.x("INSERT INTO seen(msg_id,at) VALUES(?,?)", (msg_id, now()))
+        if from_user not in self.owner_ids:
+            self.store.audit(from_user, "unauthorized", {"text": truncate(text, 80)})
+            return "unauthorized"
+        if context_token:
+            self._ctx[from_user] = context_token
+            self.store.kv_set(f"ctx.{from_user}", context_token)
+        raw = (text or "").strip()
+        if not raw:
+            return "empty"
+
+        # --- hub commands ---
+        if raw.startswith("/"):
+            cmd, _, rest = raw[1:].partition(" ")
+            cmd = cmd.lower().strip()
+            if cmd in {"status", "machines", "pending", "help"}:
+                self.say(self._hub_status(cmd))
+                return f"hub:{cmd}"
+            if cmd == "m":
+                name, _, body = rest.partition(" ")
+                node = self.store.node_by_name(name.strip())
+                if not node:
+                    self.say(f"没有叫 {name!r} 的机器。/machines 查看")
+                    return "unknown_machine"
+                self.store.push(node["id"], body, kind="human")
+                self.say(f"→ 已发给 {name}")
+                return "routed"
+
+        # --- decision by code: the ONLY way an answer reaches a machine ---
+        m = CODE_RE.search(raw)
+        if m:
+            code = m.group(1).upper()
+            q = self.store.resolve(code)
+            if not q:
+                self.say(f"没有 #{code} 这个待决策项。/pending 查看")
+                return "unknown_code"
+            answer = (raw[: m.start()] + raw[m.end():]).strip(" :：,，-")
+            self.store.push(q["node_id"], answer or raw, kind="answer", code=code)
+            self.store.close_question(code)
+            node = self.store.node_by_id(q["node_id"])
+            self.say(f"✅ 已收到 #{code} → {truncate(answer or raw, 60)}\n已交回 {node['name'] if node else q['node_id']}")
+            return "answered"
+
+        # --- bare text: only when exactly one question is pending ---
+        pending = self.store.pending()
+        if len(pending) == 1:
+            q = pending[0]
+            self.store.push(q["node_id"], raw, kind="answer", code=q["code"])
+            self.store.close_question(q["code"])
+            node = self.store.node_by_id(q["node_id"])
+            self.say(f"✅ 已收到 #{q['code']} → {truncate(raw, 60)}\n已交回 {node['name'] if node else q['node_id']}")
+            return "answered_sole"
+        if len(pending) > 1:
+            lines = [f"有 {len(pending)} 个待决策，请带编号回复:"] + [
+                f"#{p['code']} [{self._name(p['node_id'])}] {truncate(p['prompt'] or '', 40)}" for p in pending
+            ]
+            self.say("\n".join(lines))
+            return "ambiguous"
+
+        # --- otherwise: the chat layer may answer, it may never approve ---
+        if self.chat is not None:
+            try:
+                reply = self.chat.reply(raw, node_names=[n["name"] for n in self.store.nodes()])
+            except Exception as exc:
+                self.store.audit("hub", "chat_error", {"error": str(exc)[:150]})
+                reply = None
+            if reply:
+                self.say(reply)
+                return "chat"
+        self.say("当前没有待决策项，且聊天层未启用。发送 /machines 看机器，/help 看命令。")
+        return "no_target"
+
+    def _name(self, node_id: str) -> str:
+        row = self.store.node_by_id(node_id)
+        return row["name"] if row else node_id
+
+    def _hub_status(self, cmd: str) -> str:
+        nodes = self.store.nodes()
+        if cmd == "help":
+            return "/machines 机器列表\n/pending 待决策\n/m 机器名 内容 定向发送\n#编号 答复\n其余文字=聊天"
+        if cmd == "pending":
+            pend = self.store.pending()
+            if not pend:
+                return "没有待决策项"
+            return "\n".join(f"#{p['code']} [{self._name(p['node_id'])}] {truncate(p['prompt'] or '', 50)}" for p in pend)
+        if cmd == "machines":
+            if not nodes:
+                return "还没有机器注册"
+            return "\n".join(
+                f"{'🟢' if n['online'] else '⚪️'} {n['name']}  项目={','.join(json.loads(n['projects'] or '[]')) or '-'}  {int((now()-(n['last_seen'] or 0))//60)}分钟前"
+                for n in nodes
+            )
+        online = sum(1 for n in nodes if n["online"])
+        return (
+            f"📊 Hub {VERSION}\n机器: {online}/{len(nodes)} 在线\n"
+            f"待决策: {len(self.store.pending())}\n"
+            f"微信: {'已连接' if self.client.token else '未登录'}"
+        )
+
+    # -- WeChat inbound loop --------------------------------------------
+    def run_wechat(self) -> None:
+        buf = self.store.kv_get("ilink.buf", "")
+        timeout = 35.0
+        failures = 0
+        while not self._stop.is_set():
+            try:
+                resp = self.client.get_updates(buf, timeout=timeout)
+                errcode = int(resp.get("errcode", 0) or 0)
+                ret = int(resp.get("ret", 0) or 0)
+                if errcode == -14 or ret == -14:
+                    self.store.audit("hub", "token_expired", {})
+                    log_stderr("[hub] WeChat token expired; run `arb login` on the hub host")
+                    self._stop.wait(30)
+                    continue
+                if errcode or ret:
+                    raise RuntimeError(f"getupdates ret={ret} errcode={errcode}")
+                new_buf = str(resp.get("get_updates_buf") or "")
+                if new_buf:
+                    buf = new_buf
+                    self.store.kv_set("ilink.buf", buf)
+                suggested = int(resp.get("longpolling_timeout_ms") or 0)
+                if suggested > 0:
+                    timeout = max(5.0, min(60.0, suggested / 1000.0))
+                for msg in resp.get("msgs") or []:
+                    if int(msg.get("message_type") or 1) != 1:
+                        continue
+                    from_user = str(msg.get("from_user_id") or "")
+                    text = ""
+                    for item in msg.get("item_list") or []:
+                        if int(item.get("type") or 0) == 1:
+                            text += str((item.get("text_item") or {}).get("text") or "")
+                    mid = str(msg.get("message_id") or f"m{int(now()*1000)}")
+                    if text.strip():
+                        self.handle_human(mid, from_user, text, str(msg.get("context_token") or ""))
+                failures = 0
+            except Exception as exc:  # network hiccup: back off, keep serving nodes
+                failures += 1
+                self.store.audit("hub", "wechat_poll_error", {"error": str(exc)[:150], "n": failures})
+                self._stop.wait(min(30.0, 1.5 ** min(failures, 8)))
+        return
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+class HubServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
+    store = hub.store
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        server_version = f"arb-hub/{VERSION}"
+
+        def log_message(self, fmt: str, *args: Any) -> None:
+            return
+
+        def _json(self, code: int, payload: Any) -> None:
+            body = json_dumps(payload).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def _body(self) -> dict[str, Any]:
+            n = int(self.headers.get("Content-Length") or 0)
+            if not n:
+                return {}
+            return json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+
+        def _node(self, body: dict[str, Any]) -> sqlite3.Row | None:
+            node_id = str(body.get("node_id") or "")
+            token = str(body.get("token") or self.headers.get("X-ARB-Node-Token") or "")
+            row = store.auth(node_id, token) if node_id and token else None
+            if row is None:
+                self._json(401, {"ok": False, "error": "bad node credentials"})
+            return row
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path.startswith("/v1/health"):
+                self._json(200, {
+                    "ok": True, "version": VERSION,
+                    "nodes": len(store.nodes()),
+                    "pending": len(store.pending()),
+                    "wechat_logged_in": bool(hub.client.token),
+                })
+                return
+            self._json(404, {"ok": False, "error": "not found"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            try:
+                body = self._body()
+            except ValueError:
+                self._json(400, {"ok": False, "error": "bad json"})
+                return
+            path = self.path.split("?")[0]
+            try:
+                if path == "/v1/register":
+                    name = str(body.get("name") or "").strip()
+                    token = str(body.get("token") or "")
+                    if not name or not token:
+                        self._json(400, {"ok": False, "error": "name and token required"})
+                        return
+                    self._json(200, {"ok": True, **store.register(name, token)})
+                    return
+                node = self._node(body)
+                if node is None:
+                    return
+                store.touch(node["id"], str(body.get("status") or "online"))
+                if path == "/v1/poll":
+                    msgs = store.take(node["id"], float(body.get("timeout") or 25))
+                    store.touch(node["id"])
+                    self._json(200, {"ok": True, "messages": msgs})
+                    return
+                if path == "/v1/send":
+                    hub.push_from_node(node["id"], str(body.get("text") or ""), str(body.get("kind") or "notify"))
+                    self._json(200, {"ok": True})
+                    return
+                if path == "/v1/question":
+                    code = str(body.get("code") or "").upper()
+                    if not CODE_RE.fullmatch(f"#{code}"):
+                        self._json(400, {"ok": False, "error": "bad code"})
+                        return
+                    hub.question_from_node(node["id"], code, str(body.get("prompt") or ""))
+                    self._json(200, {"ok": True, "code": code})
+                    return
+                if path == "/v1/snapshot":
+                    store.x(
+                        "UPDATE nodes SET snapshot=?, projects=? WHERE id=?",
+                        (json_dumps(body.get("snapshot") or {}), json_dumps(body.get("projects") or []), node["id"]),
+                    )
+                    self._json(200, {"ok": True})
+                    return
+                if path == "/v1/heartbeat":
+                    self._json(200, {"ok": True})
+                    return
+                self._json(404, {"ok": False, "error": "not found"})
+            except PermissionError as exc:
+                self._json(403, {"ok": False, "error": str(exc)})
+            except Exception as exc:  # pragma: no cover
+                store.audit("hub", "handler_error", {"path": path, "error": str(exc)[:200]})
+                self._json(500, {"ok": False, "error": str(exc)[:200]})
+
+    return Handler
+
+
+def serve_hub(cfg_path: str) -> int:
+    """Entry point used by `arb hub serve` on the ECS."""
+    cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8-sig"))
+    store = HubStore(cfg["state"])
+    creds = json.loads(Path(cfg["ilink_creds"]).read_text(encoding="utf-8-sig"))
+    client = IlinkClient(creds["base_url"], creds["token"])
+    hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
+
+    port = int(cfg.get("port", DEFAULT_PORT))
+    httpd = HubServer(("0.0.0.0", port), make_handler(hub))
+    if cfg.get("tls_cert") and cfg.get("tls_key"):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cfg["tls_cert"], cfg["tls_key"])
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        log_stderr(f"[hub] TLS enabled, listening on 0.0.0.0:{port}")
+    else:
+        log_stderr(f"[hub] WARNING: plaintext, listening on 0.0.0.0:{port}")
+
+    threading.Thread(target=hub.run_wechat, name="wechat", daemon=True).start()
+    log_stderr(f"[hub] state={cfg['state']} nodes=0 owner={cfg['owner_ids']}")
+    try:
+        httpd.serve_forever(poll_interval=0.3)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        hub.stop()
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(serve_hub(sys.argv[1] if len(sys.argv) > 1 else "/etc/arb/hub.json"))

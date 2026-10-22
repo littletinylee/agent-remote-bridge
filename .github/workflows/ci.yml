@@ -26,6 +26,8 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: no identifiers leaked into committed reports
+        run: python scripts/sanitize_reports.py --check
       - name: smoke test the CLI
         env:
           PYTHONPATH: src

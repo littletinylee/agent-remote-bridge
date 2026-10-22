@@ -48,6 +48,14 @@ class _LoopbackServer(ThreadingHTTPServer):
     allow_reuse_address = False
     daemon_threads = True
 
+    def handle_error(self, request, client_address) -> None:  # type: ignore[no-untyped-def]
+        # Probes (arb status, health checks) close their socket abruptly; that is
+        # normal, not a bug worth a full traceback in the log.
+        import sys
+
+        exc = sys.exc_info()[1]
+        log_stderr(f"[http] client {client_address[0]} dropped: {type(exc).__name__}: {exc}")
+
 
 def chunk_text(text: str, limit: int) -> list[str]:
     """Split a message on line boundaries so no single push is oversized."""
@@ -328,13 +336,24 @@ class Daemon:
 
     # -- http ------------------------------------------------------------
     def status_payload(self) -> dict[str, Any]:
+        healthy = self.channel.healthy()
+        uptime = int(now() - self.started_at)
+        # A just-started channel has not completed a long poll yet; calling that
+        # "down" would be scary and wrong.
+        if healthy:
+            state = "healthy"
+        elif uptime < 60 and not (self._last_channel_error or getattr(self.channel, "auth_error", "")):
+            state = "starting"
+        else:
+            state = "down"
         return {
             "ok": True,
             "version": VERSION,
-            "uptime_s": int(now() - self.started_at),
+            "uptime_s": uptime,
             "channel": {
                 "name": getattr(self.channel, "name", "unknown"),
-                "healthy": self.channel.healthy(),
+                "healthy": healthy,
+                "state": state,
                 "last_error": self._last_channel_error,
                 "auth_error": getattr(self.channel, "auth_error", ""),
                 "logged_in": load_ilink(self.cfg).valid,
@@ -366,7 +385,9 @@ class Daemon:
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
                 self.end_headers()
+                self.close_connection = True
                 try:
                     self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):

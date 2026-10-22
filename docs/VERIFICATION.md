@@ -96,8 +96,8 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 
 ## 5. 真实个人微信（已实测）
 
-机主于 12:00 前后用手机微信扫码登录（bot `ffbbf02dedb3@im.bot`），随后完成了下列真实交互。
-逐条证据见 `docs/verification/wechat-transcript.json`（数据库原始记录）。
+机主于 12:00 前后用手机微信扫码登录（bot `ffbb…@im.bot`），随后完成了下列真实交互。
+逐条证据见 `docs/verification/wechat-transcript.json`（数据库原始记录，已脱敏：微信号与账号 id 只保留前 4 位）。
 
 | 时间 | 谁 | 内容 | 结果 |
 |---|---|---|---|

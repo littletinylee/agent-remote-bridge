@@ -32,6 +32,9 @@ SRC = ROOT / "src"
 PY = sys.executable
 CLAUDE = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.exe")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from report_util import write_report  # noqa: E402
+
 
 def find_codex() -> str:
     candidates: list[Path] = []
@@ -364,9 +367,7 @@ def main() -> int:
         harness.mark("done")
         result["events"] = harness.events
         harness.close()
-        Path("e2e-concurrent-report.json").write_text(
-            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_report("e2e-concurrent-report.json", result)
         print("\n=== E2E CONCURRENT RESULT ===")
         print(json.dumps({k: v for k, v in result.items() if k != "events"}, ensure_ascii=False, indent=2))
         print("\nTimeline:")

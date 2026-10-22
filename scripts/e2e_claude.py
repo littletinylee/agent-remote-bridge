@@ -34,6 +34,9 @@ PY = sys.executable
 CLAUDE = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.exe")
 CODE_RE = re.compile(r"#([2-9A-HJ-NP-Z]{4})")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from report_util import write_report  # noqa: E402
+
 
 def free_port() -> int:
     import socket
@@ -230,7 +233,7 @@ def main() -> int:
         if daemon.poll() is None:
             daemon.terminate()
         report = Path("e2e-claude-report.json")
-        report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_report(report, result)
         print("\n=== E2E CLAUDE RESULT ===")
         print(json.dumps(result, ensure_ascii=False, indent=2))
         print(f"report: {report.resolve()}")

@@ -167,8 +167,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         return EXIT_OK
     ch = info.get("channel") or {}
     stats = info.get("stats") or {}
+    state = ch.get("state") or ("healthy" if ch.get("healthy") else "down")
+    state_text = {"healthy": "健康", "starting": "启动中（等待首次长轮询）"}.get(state, "异常")
     print(f"守护进程: 运行中 {info.get('uptime_s')}s  http://127.0.0.1:{cfg.port}")
-    print(f"通道:     {ch.get('name')} / {'健康' if ch.get('healthy') else '异常'}  已登录={ch.get('logged_in')}")
+    print(f"通道:     {ch.get('name')} / {state_text}  已登录={ch.get('logged_in')}")
     if ch.get("auth_error"):
         print(f"认证问题: {ch.get('auth_error')}")
     elif ch.get("last_error"):

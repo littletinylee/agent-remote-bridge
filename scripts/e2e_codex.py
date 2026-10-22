@@ -25,6 +25,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 PY = sys.executable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from report_util import write_report  # noqa: E402
+
+
 def find_codex() -> str:
     """Pick a Codex CLI whose helper binaries (command runner / code-mode host)
     are actually present. Several builds can be installed side by side; an
@@ -235,7 +240,7 @@ def main() -> int:
         time.sleep(0.4)
         if daemon.poll() is None:
             daemon.terminate()
-        Path("e2e-codex-report.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_report("e2e-codex-report.json", result)
         print("\n=== E2E CODEX RESULT ===")
         print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1

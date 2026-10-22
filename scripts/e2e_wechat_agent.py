@@ -27,6 +27,9 @@ CLAUDE = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.
 ARB_HOME = Path(os.environ.get("ARB_HOME") or (Path(os.environ["APPDATA"]) / "agent-remote-bridge"))
 CODE_RE = re.compile(r"#([2-9A-HJ-NP-Z]{4})")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from report_util import write_report  # noqa: E402
+
 
 def api(path: str, payload: dict | None = None) -> dict:
     cfg = json.loads((ARB_HOME / "config.json").read_text(encoding="utf-8-sig"))
@@ -105,7 +108,7 @@ def main() -> int:
     questions = api("/api/pending")
     result["still_pending"] = len(questions["pending"])
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    Path("e2e-wechat-report.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_report("e2e-wechat-report.json", result)
     return 0 if result["ok"] else 1
 
 

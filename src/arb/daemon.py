@@ -204,9 +204,9 @@ class Daemon:
                 return None
             if q.state != "pending":
                 return q
-            if now() >= deadline:
+            if now() >= deadline or self.stop_event.is_set():
                 return q
-            self.stop_event.wait(0.2)
+            time.sleep(0.2)
 
     # -- inbound ---------------------------------------------------------
     def handle_message(self, msg: InboundMessage) -> str:

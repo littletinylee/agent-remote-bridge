@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE TABLE IF NOT EXISTS inbox (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, kind TEXT NOT NULL,
-    text TEXT NOT NULL, code TEXT, created_at REAL NOT NULL, delivered_at REAL
+    text TEXT NOT NULL, code TEXT, created_at REAL NOT NULL, delivered_at REAL, frm TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_inbox_node ON inbox(node_id, delivered_at);
 CREATE TABLE IF NOT EXISTS questions (
@@ -85,6 +85,9 @@ class HubStore:
         cols = {r['name'] for r in conn.execute("PRAGMA table_info(questions)").fetchall()}
         if 'msg_id' not in cols:  # migrate a hub created before quoted replies
             conn.execute("ALTER TABLE questions ADD COLUMN msg_id TEXT")
+        icols = {r['name'] for r in conn.execute("PRAGMA table_info(inbox)").fetchall()}
+        if 'frm' not in icols:  # migrate a hub created before sender forwarding
+            conn.execute("ALTER TABLE inbox ADD COLUMN frm TEXT")
         conn.commit()
 
     def conn(self) -> sqlite3.Connection:
@@ -166,10 +169,11 @@ class HubStore:
         return out
 
     # -- inbox -----------------------------------------------------------
-    def push(self, node_id: str, text: str, kind: str = "reply", code: str | None = None) -> int | None:
+    def push(self, node_id: str, text: str, kind: str = "reply", code: str | None = None,
+             frm: str = "") -> int | None:
         self.x(
-            "INSERT INTO inbox(node_id,kind,text,code,created_at) VALUES(?,?,?,?,?)",
-            (node_id, kind, clean_text(text), code, now()),
+            "INSERT INTO inbox(node_id,kind,text,code,created_at,frm) VALUES(?,?,?,?,?,?)",
+            (node_id, kind, clean_text(text), code, now(), frm or None),
         )
         row = self.q1("SELECT last_insert_rowid() AS id")
         return int(row["id"]) if row else None
@@ -185,7 +189,10 @@ class HubStore:
                     "UPDATE inbox SET delivered_at=? WHERE node_id=? AND delivered_at IS NULL",
                     (now(), node_id),
                 )
-                return [{"kind": r["kind"], "text": r["text"], "code": r["code"]} for r in rows]
+                return [
+                    {"kind": r["kind"], "text": r["text"], "code": r["code"], "frm": r["frm"] or ""}
+                    for r in rows
+                ]
             if now() >= deadline:
                 return []
             time.sleep(0.2)
@@ -285,7 +292,7 @@ class Hub:
                 if not node:
                     self.say(f"没有叫 {name!r} 的机器。/machines 查看")
                     return "unknown_machine"
-                self.store.push(node["id"], body, kind="human")
+                self.store.push(node["id"], body, kind="human", frm=from_user)
                 self.say(f"→ 已发给 {name}")
                 return "routed"
 
@@ -296,7 +303,7 @@ class Hub:
                 if q["state"] != "pending":
                     self.say(f"⚠️ 你引用的那条 (#{q['code']}) 已经处理过了，这条回复被忽略。")
                     return "already_handled"
-                self.store.push(q["node_id"], raw, kind="answer", code=q["code"])
+                self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
                 return "forwarded_quote"
             self.store.audit("hub", "quote_unknown", {"ref": ref_svr_id[:32]})
 
@@ -309,7 +316,7 @@ class Hub:
                 self.say(f"没有 #{code} 这个待决策项。/pending 查看")
                 return "unknown_code"
             answer = (raw[: m.start()] + raw[m.end():]).strip(" :：,，-")
-            self.store.push(q["node_id"], answer or raw, kind="answer", code=code)
+            self.store.push(q["node_id"], answer or raw, kind="answer", code=code, frm=from_user)
             # The node owns question state: it closes the code once its own
             # router actually claimed the answer. Closing here made the hub
             # report success even when the answer was rejected on the machine
@@ -320,7 +327,7 @@ class Hub:
         pending = self.store.pending()
         if len(pending) == 1:
             q = pending[0]
-            self.store.push(q["node_id"], raw, kind="answer", code=q["code"])
+            self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
             return "forwarded_sole"
         if len(pending) > 1:
             lines = [f"有 {len(pending)} 个待决策，请带编号回复:"] + [

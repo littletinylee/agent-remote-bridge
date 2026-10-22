@@ -168,7 +168,7 @@ class RelayChannel(Channel):
                     body = f"#{code} {text}" if (kind == "answer" and code) else text
                     on_message(InboundMessage(
                         msg_id=f"hub-{code or 'x'}-{hashlib.sha1(body.encode()).hexdigest()[:12]}-{new_id('n')[:6]}",
-                        from_user="hub",
+                        from_user=str(msg.get("frm") or "hub"),
                         text=body,
                         context_token="",
                     ))

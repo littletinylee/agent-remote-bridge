@@ -287,16 +287,25 @@ class Daemon:
                 try:
                     # Relay mode: the hub must learn which machine owns this
                     # code before the human can answer it.
+                    hub_pushed = False
                     if row["question_id"] and hasattr(self.channel, "register_question"):
                         q = self.store.get_question(row["question_id"])
                         if q is not None:
                             try:
-                                self.channel.register_question(q.code, q.prompt)  # type: ignore[attr-defined]
+                                # The hub pushes the question itself (it must, to remember
+                                # the WeChat message id for quoted replies), so the node
+                                # must not push a second copy.
+                                hub_pushed = bool(
+                                    self.channel.register_question(q.code, q.prompt)  # type: ignore[attr-defined]
+                                )
                             except Exception:
-                                pass
+                                hub_pushed = False
                     msg_id = ""
-                    for chunk in chunk_text(row["text"], self.cfg.max_push_chars):
-                        msg_id = self.channel.send(chunk)
+                    if hub_pushed:
+                        msg_id = f"hub-pushed-{row['id']}"
+                    else:
+                        for chunk in chunk_text(row["text"], self.cfg.max_push_chars):
+                            msg_id = self.channel.send(chunk)
                     self.store.mark_outbox_sent(row["id"], msg_id)
                     if row["question_id"]:
                         self.store.mark_delivered(row["question_id"], msg_id)

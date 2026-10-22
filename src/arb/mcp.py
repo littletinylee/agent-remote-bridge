@@ -21,13 +21,14 @@ import time
 import traceback
 from typing import Any
 
+from . import __version__ as _pkg_version
 from .agents import AGENT_GENERIC, generic_context
 from .client import ApiError, Client, DaemonUnavailable
 from .config import load
 from .util import json_dumps, log_stderr, one_line, truncate
 
 SERVER_NAME = "agent-remote-bridge"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = _pkg_version
 PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS = [

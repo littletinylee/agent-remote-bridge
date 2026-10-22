@@ -22,7 +22,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import agents
+from . import __version__, agents
 from .client import ApiError, Client, DaemonUnavailable
 from .config import Config, clear_ilink, load, load_ilink, save_ilink
 from .util import json_dumps, log_stderr, now, one_line, truncate
@@ -640,7 +640,7 @@ def _claude_approval(cfg: Config, ev: agents.AgentEvent) -> int:
 # --------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="arb", description="Agent Remote Bridge — AI agent remote control over WeChat")
-    p.add_argument("--version", action="version", version="agent-remote-bridge 1.0.0")
+    p.add_argument("--version", action="version", version=f"agent-remote-bridge {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="创建配置目录").set_defaults(func=cmd_init)

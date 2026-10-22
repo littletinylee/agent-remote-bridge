@@ -31,7 +31,7 @@ from .router import Router
 from .store import Question, Store
 from .util import iso, json_dumps, json_loads, log_stderr, new_id, now, one_line, secret_compare, truncate
 
-VERSION = "1.0.0"
+VERSION = "0.4.0"
 
 # Trusted local identities: the loopback API is already token-authenticated, so
 # `arb answer` / hooks are not subject to the WeChat owner allowlist.

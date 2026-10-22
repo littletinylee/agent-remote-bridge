@@ -6,7 +6,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: Se
 ## [Unreleased]
 
 ### Pending verification (needs the owner's phone)
-- W1/W2/W3: real personal-WeChat delivery, reply, and long-idle push. See `docs/VERIFICATION.md`.
+- W3 only: a push after ≥1 h of no WeChat interaction. Everything else in the
+  acceptance list is now measured (see `docs/VERIFICATION.md`).
+
+## [0.4.0] - 2026-10-22
+
+### Added
+- `arb service install|uninstall|status`: logon autostart without admin rights
+  (Startup-folder hidden launcher; verified by restarting from it).
+- `scripts/verify.py`: non-mutating snapshot (python/config/sqlite/daemon/
+  channel/endpoint/tests) as text, markdown or JSON.
+- `scripts/report_util.py` + `scripts/sanitize_reports.py`: strip WeChat ids,
+  bot tokens, API keys and user paths out of committed verification artifacts;
+  CI enforces it.
+- Stress tests: 20 questions over 10 sessions answered in shuffled order, and
+  8 concurrent approvals of one question (exactly one wins).
+
+### Fixed
+- Daemon no longer runs silently without a channel after `errcode -14`: it stays
+  visibly unhealthy and retries every 30s; re-running `arb login` heals the
+  running daemon because credentials are reloaded on each attempt.
+- `IlinkError(retryable=...)` raised TypeError inside the exception handler,
+  masking real network errors.
+- Empty `api_token` authenticated requests that omitted the header; now 401 and
+  compared in constant time.
+- Pairing code rotates after a successful bind (replay defence).
+- `wait_for` busy-looped during shutdown; HTTP probes no longer log tracebacks.
+- Notify dedupe hashed only the title, dropping distinct messages that shared
+  one.
+- `arb ask` now distinguishes "waiter gave up, question still live" (exit 3).
+
+## [0.3.0] - 2026-10-22
+
+### Added
+- Verified end-to-end on a real personal phone: proactive push (cold, no
+  `context_token`), inbound reply driving the origin agent session, and the
+  dangerous-operation gate (a bare `1` was refused, `yes` approved, then Claude
+  Code executed the command and wrote its file).
+- `scripts/e2e_wechat_agent.py` (real Claude Code + real WeChat approval).
+- `arb approval on|off|status`.
 
 ## [0.2.0] - 2026-10-22
 

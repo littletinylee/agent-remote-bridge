@@ -193,6 +193,17 @@ class TestHttpApi(ArbTestCase):
         self.assertEqual(done["state"], "answered")
         self.assertEqual(done["answer"], "no")
 
+    def test_local_answer_accepts_any_caller_label(self) -> None:
+        """A loopback caller is token-authenticated; its label must not be
+        confused with a WeChat identity (and must not be allowlist-filtered)."""
+        sess = self.client.session(agent="codex", project="projB", cwd="D:/projB", key="k2b")
+        q = self.client.ask(session_id=sess["id"], prompt="外部脚本回答", options=["yes", "no"])["question"]
+        self.client.answer(q["code"], "1", by="nightly-script")
+        done = self.client.wait(q["id"], timeout=5)["question"]
+        self.assertEqual(done["state"], "answered")
+        self.assertIn("nightly-script", done["answer_by"])
+        self.assertNotIn("nightly-script", self.cfg.owner_ids)
+
     def test_duplicate_inbound_message_id_is_ignored(self) -> None:
         sess = self.client.session(agent="codex", project="projB", cwd="D:/projB", key="k3")
         q = self.client.ask(session_id=sess["id"], prompt="重复投递", options=["yes", "no"])["question"]

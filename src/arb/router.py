@@ -83,7 +83,11 @@ class Router:
         if cmd and cmd[0] == "pair":
             return self._try_pair(msg, cmd[1])
 
-        if msg.from_user not in self.cfg.owner_ids and msg.from_user not in LOCAL_SENDERS:
+        # Local/API callers are already token-authenticated; a prefix like
+        # "local-cli:<label>" keeps the audit trail without pretending to be a
+        # WeChat sender.
+        base_identity = msg.from_user.split(":", 1)[0]
+        if msg.from_user not in self.cfg.owner_ids and base_identity not in LOCAL_SENDERS:
             return self._reject_unknown(msg)
 
         # 2) commands -----------------------------------------------------

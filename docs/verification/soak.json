@@ -1,0 +1,58 @@
+{
+  "ok": true,
+  "seconds": 62.8,
+  "workers": 3,
+  "answered": 999,
+  "errors": 0,
+  "ws_start_mb": 34.9,
+  "ws_end_mb": 51.7,
+  "ws_growth_pct": 48.1,
+  "threads_start": 10,
+  "threads_end": 7,
+  "samples": [
+    {
+      "t": 10,
+      "ws_mb": 45.7,
+      "threads": 9
+    },
+    {
+      "t": 20,
+      "ws_mb": 49.8,
+      "threads": 9
+    },
+    {
+      "t": 30,
+      "ws_mb": 49.9,
+      "threads": 12
+    },
+    {
+      "t": 41,
+      "ws_mb": 39.8,
+      "threads": 11
+    },
+    {
+      "t": 51,
+      "ws_mb": 45.7,
+      "threads": 10
+    },
+    {
+      "t": 61,
+      "ws_mb": 51.7,
+      "threads": 8
+    }
+  ],
+  "stats": {
+    "sessions": 3,
+    "active_sessions": 3,
+    "pending_questions": 2,
+    "questions_total": 1001,
+    "answered": 999,
+    "expired": 0,
+    "inbound": 999
+  },
+  "outbox": {
+    "pending": 0,
+    "failing": 0,
+    "sent": 2000
+  }
+}

@@ -516,9 +516,13 @@ class Daemon:
             return {"ok": True, "stopping": True}
         if path == "/api/answer":
             code = str(body.get("code") or "")
+            caller = str(body.get("by") or "cli")
+            # The HTTP caller is authenticated by the API token, so it is a
+            # trusted local actor; keep its label for the audit trail but never
+            # let it impersonate a WeChat sender (or dodge the allowlist).
             msg = InboundMessage(
                 msg_id=new_id("local"),
-                from_user=str(body.get("by") or "local-cli"),
+                from_user=f"local-cli:{caller}",
                 text=f"#{code} {body.get('text', '')}".strip(),
             )
             outcome = self.handle_message(msg)

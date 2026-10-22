@@ -21,6 +21,8 @@ class InboundMessage:
     ref_svr_id: str = ""      # quoted message id (server side), if the human quoted a push
     context_token: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+    ref_code: str = ""         # question header in ref_msg.message_item (older clients)
+    quoted: bool = False       # preserve unknown quotes; never guess another pending question
 
 
 OnMessage = Callable[[InboundMessage], None]

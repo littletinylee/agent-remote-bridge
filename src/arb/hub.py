@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .channel.ilink import IlinkClient
+from .channel.ilink import IlinkChannel, IlinkClient
 from .util import clean_text, gen_secret, json_dumps, log_stderr, now, truncate
 
 VERSION = "0.1.0"
@@ -283,7 +283,7 @@ class Hub:
         label = node["name"] if node else node_id
         out_id = self.say(
             f"🚨 需要你决策  #{code.upper()}\n[{label}]\n{truncate(prompt, 900)}\n"
-            f"回复: #{code.upper()} 你的答复（或引用本条消息直接回，最稳）"
+            f"回复: #{code.upper()} 你的答复（或直接回复选项序号）"
         )
         self.store.put_question(code, node_id, prompt, out_id)
         if not out_id:
@@ -294,7 +294,7 @@ class Hub:
 
     # -- inbound from WeChat --------------------------------------------
     def handle_human(self, msg_id: str, from_user: str, text: str, context_token: str = "",
-                     ref_svr_id: str = "") -> str:
+                     ref_svr_id: str = "", ref_code: str = "", quoted: bool = False) -> str:
         if self.store.q1("SELECT 1 FROM seen WHERE msg_id=?", (msg_id,)):
             return "duplicate"
         self.store.x("INSERT INTO seen(msg_id,at) VALUES(?,?)", (msg_id, now()))
@@ -326,15 +326,20 @@ class Hub:
                 return "routed"
 
         # --- quoted reply: binds to the exact pushed message (strongest) ---
-        if ref_svr_id:
+        if quoted or ref_svr_id or ref_code:
             q = self.store.resolve_by_msg(ref_svr_id)
+            if q is None and ref_code:
+                q = self.store.resolve(ref_code)
             if q is not None:
                 if q["state"] != "pending":
                     self.say(f"⚠️ 你引用的那条 (#{q['code']}) 已经处理过了，这条回复被忽略。")
                     return "already_handled"
                 self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
+                self.store.audit("hub", "answer_forwarded", {"code": q["code"], "source": "quote"})
                 return "forwarded_quote"
-            self.store.audit("hub", "quote_unknown", {"ref": ref_svr_id[:32]})
+            self.store.audit("hub", "quote_unknown", {"ref": ref_svr_id[:32], "code": ref_code})
+            self.say("⚠️ 无法识别你引用的提问。请单独回复 #CODE 你的答复，或 /pending 查看。")
+            return "unknown_quote"
 
         # --- decision by code ---
         m = CODE_RE.search(raw)
@@ -352,17 +357,42 @@ class Hub:
             # (e.g. "使用" is not one of allow/deny).
             return "forwarded"
 
-        # --- bare text: only when exactly one question is pending ---
+        # --- a bare number answers the numbered list we just sent ---
         pending = self.store.pending()
+        m_num = re.fullmatch(r"\s*(\d{1,2})\s*", raw)
+        if m_num and len(pending) > 1:
+            try:
+                saved = json.loads(self.store.kv_get("pending_list", "") or "{}")
+            except ValueError:
+                saved = {}
+            codes = list(saved.get("codes") or [])
+            fresh = now() - float(saved.get("ts") or 0) < 600
+            idx = int(m_num.group(1))
+            if fresh and 1 <= idx <= len(codes):
+                q = self.store.resolve(codes[idx - 1])
+                if q is not None and q["state"] == "pending":
+                    self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
+                    return "forwarded_index"
+            self.say("没看懂这个序号，请回复最新那条列表里的编号，或直接发 #编号。")
+            return "bad_index"
+
+        # --- bare text: only when exactly one question is pending ---
         if len(pending) == 1:
             q = pending[0]
             self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
             return "forwarded_sole"
         if len(pending) > 1:
-            lines = [f"有 {len(pending)} 个待决策，请带编号回复:"] + [
-                f"#{p['code']} [{self._name(p['node_id'])}] {truncate(p['prompt'] or '', 40)}" for p in pending
+            lines = [f"有 {len(pending)} 个待决策，回复序号即可:"] + [
+                f"{i}) #{p['code']} [{self._name(p['node_id'])}] {truncate(p['prompt'] or '', 40)}"
+                for i, p in enumerate(pending, 1)
             ]
             self.say("\n".join(lines))
+            # The owner cannot quote a bot message on WeChat, so remember the
+            # order we just showed: a bare number answers that item.
+            self.store.kv_set(
+                "pending_list",
+                json_dumps({"ts": now(), "codes": [p["code"] for p in pending]}),
+            )
             return "ambiguous"
 
         # --- otherwise: the chat layer may answer, it may never approve ---
@@ -437,21 +467,13 @@ class Hub:
                 if suggested > 0:
                     timeout = max(5.0, min(60.0, suggested / 1000.0))
                 for msg in resp.get("msgs") or []:
-                    if int(msg.get("message_type") or 1) != 1:
+                    parsed = IlinkChannel._parse(msg)
+                    if parsed is None:
                         continue
-                    from_user = str(msg.get("from_user_id") or "")
-                    text = ""
-                    for item in msg.get("item_list") or []:
-                        if int(item.get("type") or 0) == 1:
-                            text += str((item.get("text_item") or {}).get("text") or "")
-                    mid = str(msg.get("message_id") or f"m{int(now()*1000)}")
-                    ref = ""
-                    for item in msg.get("item_list") or []:
-                        r = item.get("ref_msg") or {}
-                        if r.get("svr_id"):
-                            ref = str(r["svr_id"])
-                    if text.strip():
-                        self.handle_human(mid, from_user, text, str(msg.get("context_token") or ""), ref)
+                    self.handle_human(
+                        parsed.msg_id, parsed.from_user, parsed.text, parsed.context_token,
+                        parsed.ref_svr_id, parsed.ref_code, parsed.quoted,
+                    )
                 failures = 0
             except Exception as exc:  # network hiccup: back off, keep serving nodes
                 failures += 1

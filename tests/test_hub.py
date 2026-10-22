@@ -188,6 +188,43 @@ class TestQuestionTtl(HubHarness):
         self.assertEqual(self.store.resolve("AB34")["state"], "pending")
 
 
+class TestReplyByIndex(HubHarness):
+    """The owner cannot quote a bot message on WeChat, so a bare number must work."""
+
+    def _two(self):
+        a = self.register("machine-a")
+        b = self.register("machine-b")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "A 的问题"})
+        self.call("/v1/question", {"node_id": b, "token": "tok", "code": "CD56", "prompt": "B 的问题"})
+        return a, b
+
+    def test_bare_number_answers_the_item_it_labelled(self) -> None:
+        a, b = self._two()
+        self.assertEqual(self.human("先看看"), "ambiguous")   # prints "1) ... 2) ..."
+        saved = json.loads(self.store.kv_get("pending_list", "{}"))
+        self.assertEqual(len(saved["codes"]), 2, "the printed list must be remembered")
+        want = saved["codes"][1]
+
+        self.assertEqual(self.human("2"), "forwarded_index")
+        hits = [m for m in (self.inbox(a) + self.inbox(b)) if m["kind"] == "answer"]
+        self.assertEqual(len(hits), 1, "exactly one machine receives it")
+        self.assertEqual(hits[0]["code"], want, "and it is the one labelled 2)")
+        self.assertEqual(hits[0]["text"], "2")
+
+    def test_out_of_range_index_is_refused(self) -> None:
+        a, b = self._two()
+        self.assertEqual(self.human("先看看"), "ambiguous")
+        self.assertEqual(self.human("9"), "bad_index")
+        self.assertEqual(self.inbox(a), [])
+        self.assertEqual(self.inbox(b), [])
+
+    def test_number_without_a_recent_list_is_not_guessed(self) -> None:
+        a, b = self._two()
+        self.assertEqual(self.human("1"), "bad_index")
+        self.assertEqual(self.inbox(a), [])
+        self.assertEqual(self.inbox(b), [])
+
+
 class TestSenderForwarding(HubHarness):
     def test_inbox_carries_the_real_wechat_sender(self) -> None:
         a = self.register("machine-a")

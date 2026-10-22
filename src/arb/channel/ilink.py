@@ -23,6 +23,7 @@ from __future__ import annotations
 import http.client
 import json
 import random
+import re
 import socket
 import ssl
 import sys
@@ -447,6 +448,8 @@ class IlinkChannel(Channel):
         items = msg.get("item_list") or []
         text = ""
         ref_svr = ""
+        ref_code = ""
+        quoted = False
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -454,7 +457,21 @@ class IlinkChannel(Channel):
                 text += str(item["text_item"].get("text") or "")
             ref = item.get("ref_msg")
             if isinstance(ref, dict):
-                ref_svr = str(ref.get("svr_id") or "")
+                quoted = True
+                ref_svr = ref_svr or str(ref.get("svr_id") or "")
+                # Some clients embed the original text instead of a server ID.
+                # Match only our question header, never a #CODE in its prompt
+                # or the human's answer. Quoted text is routing data, not approval.
+                original = ref.get("message_item") or {}
+                if isinstance(original, dict):
+                    body = original.get("text_item") or {}
+                    if isinstance(body, dict):
+                        match = re.match(
+                            r"^\s*🚨\s*需要你决策\s+#([2-9A-HJ-NP-Z]{4})\b",
+                            str(body.get("text") or ""), re.I,
+                        )
+                        if match:
+                            ref_code = ref_code or match.group(1).upper()
         if not text.strip():
             return None
         msg_id = str(msg.get("message_id") or "")
@@ -466,6 +483,8 @@ class IlinkChannel(Channel):
             text=text,
             ref_svr_id=ref_svr,
             context_token=str(msg.get("context_token") or ""),
+            ref_code=ref_code,
+            quoted=quoted,
         )
 
     # -- outbound --------------------------------------------------------

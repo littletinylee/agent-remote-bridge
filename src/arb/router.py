@@ -103,10 +103,14 @@ class Router:
             return "muted"
 
         # 3) quoted reply -------------------------------------------------
-        if msg.ref_svr_id:
+        if msg.quoted or msg.ref_svr_id or msg.ref_code:
             q = self.store.get_question_by_outbound(msg.ref_svr_id)
+            if q is None and msg.ref_code:
+                q = self.store.get_question_by_code(msg.ref_code)
             if q is not None:
                 return self._answer(q, raw, msg.from_user, explicit=True, source="quote")
+            self._reply("⚠️ 无法识别你引用的提问。请单独回复 #CODE 你的答复，或 /pending 查看。")
+            return "unknown_quote"
 
         # 4) explicit #CODE ----------------------------------------------
         code, rest = T.extract_code(raw)

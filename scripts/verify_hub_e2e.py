@@ -5,9 +5,10 @@ pieces of evidence:
 
     python scripts/verify_hub_e2e.py
 
-It is deliberately honest: it only prints PASS when the command actually ran
-(the artifact file exists), the local question moved to answered, and the hub
-code was closed by the node. Anything else is FAIL with the reason.
+PASS verifies that the command ran (the artifact file exists) and the local
+question moved to answered. Hub health is diagnostic only. A #CODE reply can
+also pass this test; verify answer_forwarded/source=quote in the hub audit
+separately before claiming that quote routing passed.
 """
 
 from __future__ import annotations
@@ -100,10 +101,10 @@ def main() -> int:
         time.sleep(2)
 
     try:
-        out, err = proc.communicate(timeout=15)
+        _out, err = proc.communicate(timeout=15)
     except subprocess.TimeoutExpired:
         proc.kill()
-        out, err = "", ""
+        err = ""
 
     print("evidence:")
     print(f"  1. local question #{code} state = {final}")
@@ -125,6 +126,8 @@ def main() -> int:
     ok = final == "answered" and marker.exists()
     print()
     print("PASS" if ok else "FAIL")
+    if ok:
+        print("Approval loop passed. Quote routing and hub code closure are not asserted by this script.")
     if not ok and err:
         print("claude stderr tail:", err[-400:])
     return 0 if ok else 1

@@ -1,19 +1,18 @@
-"""A small web console on the hub: see pending questions, answer them.
+"""Web console on the hub: see pending questions, answer them.
 
-Safety model (important):
-  * served over the hub's TLS port, gated by `ui_token` from hub.json
-  * opening /ui without a token shows a login box; once accepted, the token is
-    kept in an HttpOnly cookie so the URL never needs to carry it
-  * answering means "push this text into the node's inbox", exactly like a
-    WeChat reply - the node's own router still re-checks expiry, the dangerous
-    operation gate and the once-only transition, and the hub never closes a
-    question itself
+Auth is a username + password login (defaults come from hub.json); the session is
+an HttpOnly cookie so the browser remembers it. The console is disabled entirely
+if no credentials are set.
 
-Plain HTML with a 5s refresh: no build step, no JS framework, fine on a phone.
+Safety model, unchanged: answering means "push this text into the node's inbox",
+exactly like a WeChat reply. The node's own router still re-checks expiry, the
+dangerous-operation gate and the once-only transition, and the hub never closes a
+question itself - the node does, after it accepts the answer.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import html
 import time
@@ -21,6 +20,8 @@ from typing import Any
 
 MAX_ANSWER = 2000
 COOKIE = "arb_ui"
+DEFAULT_USER = "q045204"
+DEFAULT_PASSWORD = "q045204"
 
 
 def _esc(value: Any) -> str:
@@ -49,15 +50,15 @@ def page(body: str, title: str = "Agent Remote Bridge", refresh: int = 5) -> str
 <style>
  :root {{ color-scheme: light dark }}
  body {{ font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-        margin: 0; padding: 16px; line-height: 1.5; max-width: 720px; margin: 0 auto }}
+        margin: 0 auto; padding: 16px; line-height: 1.5; max-width: 720px }}
  h1 {{ font-size: 18px; margin: 0 0 12px }}
  .q {{ border: 1px solid #8884; border-radius: 10px; padding: 12px; margin: 0 0 12px }}
  .code {{ font-family: ui-monospace, Consolas, monospace; font-weight: 700 }}
  .meta {{ opacity: .75; font-size: 13px }}
  .prompt {{ white-space: pre-wrap; margin: 8px 0; font-size: 14px }}
  form {{ display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap }}
- input[type=text], input[type=password] {{ flex: 1; min-width: 200px; padding: 10px;
-        font-size: 16px; border-radius: 8px; border: 1px solid #8886 }}
+ input {{ flex: 1; min-width: 200px; padding: 10px; font-size: 16px;
+          border-radius: 8px; border: 1px solid #8886; box-sizing: border-box }}
  button {{ padding: 10px 16px; font-size: 16px; border-radius: 8px; cursor: pointer }}
  .ok {{ background: #1a7f3722; padding: 10px; border-radius: 8px; margin-bottom: 12px }}
  .warn {{ background: #bb800922; padding: 10px; border-radius: 8px; margin-bottom: 12px }}
@@ -76,11 +77,11 @@ def login_form(warning: str = "") -> str:
     head = f'<div class="warn">{_esc(warning)}</div>' if warning else ""
     return page(
         head
-        + """<p>输入中转站令牌（<code>hub.json</code> 里的 <code>ui_token</code>）。
-登录一次后浏览器会记住，以后直接打开本页即可。</p>
+        + """<p>请登录。</p>
 <form method="post" action="/ui">
-  <input type="password" name="token" placeholder="ui_token" autocomplete="current-password" required>
-  <button type="submit">进入</button>
+  <input type="text" name="user" placeholder="账号" autocomplete="username" required>
+  <input type="password" name="password" placeholder="密码" autocomplete="current-password" required>
+  <button type="submit">登录</button>
 </form>""",
         refresh=0,
     )
@@ -121,27 +122,35 @@ def render(store: Any, message: str = "", warning: str = "") -> str:
     return page(body)
 
 
+def _session_value(user: str, password: str) -> str:
+    """A cookie the browser can hold; it is not the password itself."""
+    return hashlib.sha256(f"{user}|{password}|arb-ui".encode()).hexdigest()
+
+
 def handle_ui(
     store: Any, hub: Any, method: str, query: dict, form: dict, cookie: str = ""
 ) -> tuple[int, str, str]:
     """Returns (status, html, set_cookie_value)."""
-    expected = str(getattr(hub, "ui_token", "") or "")
-    if not expected:
-        return 404, page('<p class="warn">网页控制台未启用：请在中转站配置 <code>ui_token</code>。</p>'), ""
+    user = str(getattr(hub, "ui_user", "") or DEFAULT_USER)
+    password = str(getattr(hub, "ui_password", "") or DEFAULT_PASSWORD)
+    if not user or not password:
+        return 404, page('<p class="warn">网页控制台未启用：请配置 <code>ui_user</code> / <code>ui_password</code>。</p>'), ""
 
-    candidates = [str(form.get("token") or ""), str(query.get("token") or ""), cookie or ""]
-    authorized = any(c and hmac.compare_digest(c, expected) for c in candidates)
+    session = _session_value(user, password)
+    set_cookie = f"{COOKIE}={session}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800"
+    authorized = bool(cookie) and hmac.compare_digest(cookie, session)
+
+    if method == "POST" and form.get("user") is not None:
+        given_user = str(form.get("user") or "")
+        given_pass = str(form.get("password") or "")
+        if hmac.compare_digest(given_user, user) and hmac.compare_digest(given_pass, password):
+            return 200, render(store), set_cookie
+        return 403, login_form("账号或密码不正确。"), ""
 
     if not authorized:
-        # A wrong token that was explicitly supplied is an error; an absent one
-        # just shows the login box.
-        supplied = any(candidates[:2])
-        return (403 if supplied else 200), login_form("令牌不正确。" if supplied else ""), ""
-
-    set_cookie = f"{COOKIE}={expected}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800"
+        return 200, login_form(), ""
 
     if method == "GET" or not str(form.get("code") or "").strip():
-        # GET, or a login POST that carries only the token.
         return 200, render(store), set_cookie
 
     code = str(form.get("code") or "").strip().upper()

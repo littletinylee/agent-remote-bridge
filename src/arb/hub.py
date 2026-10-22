@@ -245,7 +245,8 @@ class Hub:
         self.name = hub_name
         self._stop = threading.Event()
         self._ctx: dict[str, str] = {}
-        self.ui_token = ""
+        self.ui_user = ""
+        self.ui_password = ""
         self.question_ttl_s = 1800.0
         self.chat: Any = None  # set by M3 (advisor); never receives approval rights
 
@@ -664,7 +665,10 @@ def serve_hub(cfg_path: str) -> int:
     client = IlinkClient(creds["base_url"], creds["token"])
     hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
     hub.question_ttl_s = float(cfg.get("question_ttl_s", 1800))
-    hub.ui_token = str(cfg.get("ui_token") or "")
+    from .hub_ui import DEFAULT_PASSWORD, DEFAULT_USER
+
+    hub.ui_user = str(cfg.get("ui_user") or DEFAULT_USER)
+    hub.ui_password = str(cfg.get("ui_password") or DEFAULT_PASSWORD)
 
     key_file = cfg.get("deepseek_key_file")
     if key_file and Path(key_file).exists():

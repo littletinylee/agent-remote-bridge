@@ -19,6 +19,10 @@ Hub 就是这个唯一进程，跑在阿里云 ECS 上；各台开发机**出站
 
 ## 部署（服务器）
 
+> `pip install "git+https://github.com/littletinylee/agent-remote-bridge.git"` 之后，
+> 把 systemd 的 `ExecStart` 写成 `arb hub serve /etc/arb/hub.json` 并去掉 `Environment=PYTHONPATH=`。
+> 下面的 clone 方式保留给没有 pip 的机器。
+
 ```bash
 # 1) 代码 + 目录
 git clone https://github.com/littletinylee/agent-remote-bridge.git /opt/arb

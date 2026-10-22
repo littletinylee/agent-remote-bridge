@@ -14,6 +14,7 @@
 | 跨公网可达 | 已验证 | `curl -k https://120.78.79.184:18443/v1/health` → `{"ok":true,...}` |
 | 证书指纹固定 | 已验证 | 观测 `5121E30E…3F1D581A` == 节点配置里的钉住值；不一致则拒绝连接 |
 | 安全组放行 | 已验证 | 本机 TCP 探测 18443：`filtered` → 放行后 `OPEN` |
+| 安装（pip，无 PYTHONPATH） | 已验证 | 干净目录 `pip install --target` → `arb --version` → `agent-remote-bridge 0.4.1` |
 | Hub 独占微信 | 已验证 | 本机 daemon 停止时 `wechat_logged_in=true`，且能推送 |
 
 ## 路由与安全

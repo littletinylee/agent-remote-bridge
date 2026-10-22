@@ -13,6 +13,7 @@ re-delivers anything unsent and keeps every pending decision answerable.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -138,7 +139,11 @@ class Daemon:
                 return False
         self._notify_history[throttle_key] = ts
         text = T.format_notify(kind, sess, title, body)
-        key = dedupe or f"n:{session_id}:{kind}:{int(ts // 10)}:{hash(title) & 0xFFFF}"
+        # Dedupe on the *content*, not just the title: hooks can fire twice for
+        # one event, but two genuinely different messages that happen to share a
+        # title must both go out.
+        digest = hashlib.sha1(f"{title}\x00{body}".encode("utf-8")).hexdigest()[:12]
+        key = dedupe or f"n:{session_id}:{kind}:{int(ts // 10)}:{digest}"
         row = self.store.enqueue(text, kind="notify", dedupe=key, session_id=session_id)
         return row is not None
 

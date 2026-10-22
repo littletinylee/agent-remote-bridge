@@ -18,17 +18,14 @@
 | 路由/审批/超时/重启恢复/投递失败 | `tests/test_router.py`、`tests/test_daemon.py`、`tests/test_store.py` |
 | MCP 协议（initialize / tools/list / tools/call / Content-Length 与换行两种分帧） | `tests/test_mcp.py` |
 
-## 二、需要你本人操作才能完成的一步（当前未完成）
+## 二、真实个人微信（已实测通过）
 
-**用真实个人微信收发消息** —— 需要你手机扫码一次。技术链路已就绪：
+2026-10-22 12:00 起，机主用手机微信完成：主动推送到达 → 回复解除阻塞 → 危险操作审批（裸 `1` 被拒、
+`yes` 放行）→ Claude Code 在同一会话继续并落盘。逐条时间线与数据库原始记录见
+[VERIFICATION.md](VERIFICATION.md#5-真实个人微信已实测) 与 `docs/verification/wechat-transcript.json`。
 
-- 协议实现已有本地假服务器测试（真实 HTTP，覆盖登录/收/发/-14）；
-- 真实端点已确认可达；
-- 但"你的微信真的收到了一条消息、你回复后 Agent 继续"这一段，**必须扫码后由我们共同验证**，
-  我不会拿 console 通道的结果冒充。
-
-扫码后要补的三项验证（`docs/VERIFICATION.md` 里的 W1/W2/W3）：
-W1 主动推送到达手机微信；W2 手机回复能驱动提问的 Agent 继续；W3 长时间无交互后仍可主动推送。
+仍待补的一项：**W3 长时间无交互后的推送**（间隔 ≥1 小时再 `arb test-push`）。机制上已成立
+（冷推送无 `context_token` 也能送达），只差时间跨度实测。
 
 ## 三、部分支持 / 有明确限制
 

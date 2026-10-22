@@ -197,6 +197,8 @@ class Router:
             self.store.audit("answer_rejected_race", by, {"code": q.code, "raw": one_line(raw, 80)})
             return "lost_race"
         self.store.audit("answer", by, {"code": q.code, "answer": answer, "source": source, "raw": one_line(raw, 120)})
+        if q.session_id:
+            self.store.touch_session(q.session_id, "active")
         self._reply(T.format_confirmation(fresh or q, sess, answer))
         return f"answered:{q.code}"
 

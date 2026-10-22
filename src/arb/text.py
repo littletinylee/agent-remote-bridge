@@ -65,7 +65,7 @@ def format_question(q: Question, session: dict[str, Any] | None, *, ttl_hint: in
 
 
 def format_confirmation(q: Question, session: dict[str, Any] | None, answer: str) -> str:
-    return f"✅ 已收到 #{q.code} → {one_line(answer, 80)}\n已转交 {session_line(session)} 继续执行。"
+    return f"✅ 已收到 #{q.code} → {one_line(answer, 80)}\n已交回 {session_line(session)}。"
 
 
 def format_already_handled(q: Question, session: dict[str, Any] | None) -> str:

@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "elapsed_s": 67.8,
+  "claude_exit": 0,
+  "artifact_exists": true,
+  "artifact": "WECHAT-E2E-OK",
+  "stdout_tail": "o\":\"\",\"iterations\":[],\"speed\":\"standard\"},\"modelUsage\":{\"deepseek-v4-flash\":{\"inputTokens\":383,\"outputTokens\":66,\"cacheReadInputTokens\":0,\"cacheCreationInputTokens\":0,\"webSearchRequests\":0,\"costUSD\":0.0035650000000000005,\"contextWindow\":200000,\"maxOutputTokens\":32000},\"deepseek-v4-pro\":{\"inputTokens\":24254,\"outputTokens\":121,\"cacheReadInputTokens\":24320,\"cacheCreationInputTokens\":0,\"webSearchRequests\":0,\"costUSD\":0.136455,\"contextWindow\":200000,\"maxOutputTokens\":32000}},\"permission_denials\":[],\"terminal_reason\":\"completed\",\"fast_mode_state\":\"off\",\"uuid\":\"07b498fb-c739-494a-a650-3b0496ef0be4\"}\n",
+  "stderr_tail": "",
+  "still_pending": 0
+}

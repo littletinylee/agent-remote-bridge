@@ -262,10 +262,19 @@ def cmd_ask(args: argparse.Namespace) -> int:
     q = resp["question"]
     print(f"# 已发送问题 #{q['code']}，等待微信回复…", file=sys.stderr)
     q = client.wait(q["id"], args.timeout)["question"]
-    print(json_dumps({"status": q["state"], "code": q["code"], "answer": q["answer"], "dangerous": q["dangerous"]}))
-    if q["state"] == "answered":
+    state = q["state"]
+    print(json_dumps({"status": state, "code": q["code"], "answer": q["answer"], "dangerous": q["dangerous"]}))
+    if state == "answered":
         return EXIT_OK
-    if q["state"] == "expired":
+    if state == "pending":
+        # The waiter gave up but the question is still live in WeChat (it can
+        # still be answered there; this process simply will not see it).
+        print(
+            f"# 等待超时，#{q['code']} 仍留在微信里；之后回答请用 arb pending 查看结果。",
+            file=sys.stderr,
+        )
+        return EXIT_TIMEOUT
+    if state == "expired":
         return EXIT_TIMEOUT
     return EXIT_USAGE
 
@@ -358,6 +367,26 @@ def cmd_sessions(args: argparse.Namespace) -> int:
 def cmd_paircode(args: argparse.Namespace) -> int:
     cfg = _cfg()
     print(cfg.pairing_code)
+    return EXIT_OK
+
+
+def cmd_approval(args: argparse.Namespace) -> int:
+    """Toggle the remote approval gate without hand-editing JSON."""
+    cfg = _cfg()
+    if args.mode == "status" or args.mode is None:
+        print(f"approval_mode = {cfg.approval_mode}")
+        print(f"拦截工具: {', '.join(cfg.approval_tools)}")
+        print(f"超时: {cfg.approval_timeout_s}s → {cfg.on_timeout}")
+        print("说明: approve 模式下，上面这些工具每次执行前都会先发微信问你。")
+        return EXIT_OK
+    cfg.approval_mode = "approve" if args.mode == "on" else "notify"
+    cfg.save()
+    print(f"approval_mode = {cfg.approval_mode}")
+    if cfg.approval_mode == "approve":
+        print("从现在起，命中的工具调用会先发微信等你批准（下次 hook 调用即生效，无需重启）。")
+        print("⚠️ 请确保 arb 守护进程在运行、且手机能收到消息，否则该操作会回退到本机确认。")
+    else:
+        print("已关闭远程审批：只推送通知，工具调用由本机权限流程处理。")
     return EXIT_OK
 
 
@@ -569,6 +598,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="查看状态").set_defaults(func=cmd_status)
     sub.add_parser("doctor", help="自检").set_defaults(func=cmd_doctor)
     sub.add_parser("paircode", help="显示绑定码").set_defaults(func=cmd_paircode)
+
+    sp = sub.add_parser("approval", help="开关远程审批（on/off/status）")
+    sp.add_argument("mode", nargs="?", default="status", choices=["on", "off", "status"])
+    sp.set_defaults(func=cmd_approval)
     sub.add_parser("test-push", help="发送一条测试推送").set_defaults(func=cmd_test_push)
     sub.add_parser("pending", help="列出待处理问题").set_defaults(func=cmd_pending)
     sub.add_parser("sessions", help="列出会话").set_defaults(func=cmd_sessions)

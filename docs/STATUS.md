@@ -27,6 +27,7 @@
 | 多待决拒猜 | 已验证 | 真机裸回 `1` 三次，每次回「有 2 个待决策，请带编号回复」 |
 | 节点拥有问题状态 | 已验证 | Hub `state` 保持 pending 直到节点 `/v1/question/close` |
 | 问题 TTL 自动回收 | 已验证 | Hub 每分钟 reaper，陈旧项标记 `expired` |
+| 回复序号（多条待决） | 已验证 | 真机验证：多条待决时列出 1/2/3，回数字命中对应问题 |
 | 跨机隔离 | 集成测试 | `test_hub.TestIsolationAndBuffering`（A 机流量不进 B 机 inbox） |
 | 离线缓冲补发 | 集成测试 | 同上（离线入队，重连后恰好取一次） |
 | 未授权发送者忽略 | 已验证 | 真机出现过「来源ID: hub 被拒」→ 已修为转发真实 wxid |
@@ -46,8 +47,8 @@
 | Codex 插件 | 已验证 | `codex plugin list` installed/enabled，钩子触发推送 |
 | DSH MCP 插件 | 已验证 | 拉起 `python -m arb mcp --agent dsh`；`ask_human` 返回 `answered` |
 | Hub 提问到手机 | 已验证 | `#HUBQ` 推送成功，回 `1` 与 `2` 均被节点取到 |
-| 引用回复路由 | 仅单测 | `test_hub.test_quoted_reply_binds_to_the_exact_message` |
-| **经 Hub 的完整审批闭环** | **未完成** | 需一次人工微信回复；此前失败于发送者身份（已修） |
+| 引用回复路由 | 已验证 | 真机：引用提问回 `yes` 后命中正确机器（解析 `ref_msg.message_item.msg_id`） |
+| **经 Hub 的完整审批闭环** | **已验证** | 引用提问回 `yes` → 本地门禁放行 → 命令执行（`hub-verified.txt` 生成）→ 节点关闭 Hub 上的码 |
 
 ## M3 顾问 / M4 主动建议
 
@@ -75,6 +76,9 @@
 10. `ls … | head` 只读管道仍打扰 → 规则扩展为"每段都是只读白名单"。
 11. M4 建议每次重启后重发、且对永不重连的节点反复念叨 → 持久化信号与配额 + 30 分钟近期窗口。
 12. 服务器 `pip install git+…` 在 pip 22.0.2 上静默中断 → 改为本地构建 wheel 上传安装。
+13. Hub 只判 `errcode == -14`，真实失败返回的是 `ret: -2`（prepare failed）→ 消息静默丢失；改为任何非零 `ret`/`errcode` 都算失败并写审计。
+14. `/v1/question` 无条件返回 `ok:true` → 节点以为已推送、不重试；改为推送失败时返回 `ok:false`，节点回退自己发。
+15. 引用 id 实际在 `ref_msg.message_item.msg_id`，只读了 `ref_msg.svr_id` → 引用永远解析为空；改为读嵌套字段，并用真实报文做测试夹具。
 
 ## 复现全部测试
 

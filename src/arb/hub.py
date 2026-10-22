@@ -245,6 +245,7 @@ class Hub:
         self.name = hub_name
         self._stop = threading.Event()
         self._ctx: dict[str, str] = {}
+        self.ui_token = ""
         self.question_ttl_s = 1800.0
         self.chat: Any = None  # set by M3 (advisor); never receives approval rights
 
@@ -534,7 +535,29 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 self._json(401, {"ok": False, "error": "bad node credentials"})
             return row
 
+        def _send_html(self, code: int, text: str) -> None:
+            body = text.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def do_GET(self) -> None:  # noqa: N802
+            if self.path.startswith("/ui"):
+                from urllib.parse import parse_qs, urlparse
+
+                from .hub_ui import handle_ui
+
+                q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+                status, html_text = handle_ui(store, hub, "GET", q, {})
+                self._send_html(status, html_text)
+                return
             if self.path.startswith("/v1/health"):
                 self._json(200, {
                     "ok": True, "version": VERSION,
@@ -546,6 +569,18 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
             self._json(404, {"ok": False, "error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
+            if self.path.split("?")[0].startswith("/ui"):
+                from urllib.parse import parse_qs, urlparse
+
+                from .hub_ui import handle_ui
+
+                n = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
+                form = {k: v[0] for k, v in parse_qs(raw).items()}
+                q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+                status, html_text = handle_ui(store, hub, "POST", q, form)
+                self._send_html(status, html_text)
+                return
             try:
                 body = self._body()
             except ValueError:
@@ -619,6 +654,7 @@ def serve_hub(cfg_path: str) -> int:
     client = IlinkClient(creds["base_url"], creds["token"])
     hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
     hub.question_ttl_s = float(cfg.get("question_ttl_s", 1800))
+    hub.ui_token = str(cfg.get("ui_token") or "")
 
     key_file = cfg.get("deepseek_key_file")
     if key_file and Path(key_file).exists():

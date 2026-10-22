@@ -182,11 +182,24 @@ t+ 50s  state=healthy  healthy=True  uptime 113s（还是同一个进程）
 3. **危险操作门禁** —— 同一个问题，裸序号 `1` 被拒、明确 `yes` 才放行。这不是测试桩，是你手机上的真实操作。
 4. **中文全链路** —— 问题、选项、答复、确认消息都是中文，编码无损。
 
-### W3：长时间无微信交互后的推送
+### W3：长时间无微信交互后的推送（已实测）
 
-- 已证明的机制：`sendmessage` 是 bot 主动推送，本项目的冷推送（无 `context_token`）成功，说明不依赖 48 小时客服窗口。
-- 仍待实测的一步：间隔 ≥1 小时完全不发消息，再执行 `arb test-push`，确认仍然送达。
-  这一项被安排在稍后用定时提醒复测，结果会追加到本节。
+- 上次微信交互：12:03:31（机主回复 `yes`）。
+- 13:04:07 执行 `arb test-push`，此时**已连续 60.6 分钟没有任何微信往来**。
+- 结果：通道 `healthy`，`outbox.pending` 从 0 → 0（当场发完），`failing=0`，
+  微信服务端返回 `message_id=7518899970781169160`。
+
+```
+before: state=healthy outbox=0     idle 60.6 min
+push  : 已发送
+after : state=healthy outbox=0 failing=0 sent_total=17
+last  : notify sent=13:04:07 msg_id=7518899970781169160
+```
+
+结论：`sendmessage` 是 bot 主动推送，**不受公众号 48 小时客服窗口限制**，空闲一小时以上仍能推送。
+
+**机主已当场确认收到该条推送**（13:0x，本会话），所以 W3 三项证据齐全：
+服务端受理 + 返回消息 ID + 手机端确认。
 
 ## 9. 本机部署状态（可审计、可撤销）
 
@@ -230,7 +243,7 @@ t+ 50s  state=healthy  healthy=True  uptime 113s（还是同一个进程）
 | 多并发问题准确回复 | ✅ 离线 + 真机 |
 | 渠道异常不会错误批准 | ✅ 测试 + 真机（裸 `1` 被拒） |
 | 断线恢复 | ✅ 测试（重启后 pending 仍可答；投递失败会重试） |
-| 长时无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
+| 长时无交互仍能推送 | ✅ 空闲 60.6 分钟后推送成功，服务端返回 `message_id`（W3） |
 | 核心代码按里程碑提交 | ✅ 已推送 https://github.com/littletinylee/agent-remote-bridge （main `1323621` + tag `v0.1.0`–`v0.4.0`，远端 refs 已核对） |
 | 两种以上 Agent 真实验证 | ✅ Claude Code + Codex，hooks / MCP / CLI 三条路径 |
 | 真实安装配置可用 | ✅ 用真实 `~/.claude/settings.json` 跑 `claude -p`，4 条推送全部送达 |

@@ -47,7 +47,7 @@
 | 断线重连、重启后待处理问题恢复 | ✅ 测试覆盖 |
 | 重复投递 / 重复审批去重 | ✅ 测试覆盖 |
 | 零第三方依赖、Windows / Linux / macOS | ✅ |
-| **长时间（≥1h）无交互后仍能推送** | ⏳ 待复测（冷推送已成功，机制成立） |
+| **长时间（≥1h）无交互后仍能推送** | ✅ 实测：空闲 60.6 分钟后推送成功 |
 
 没做的、做不到的、需要条件的，都写在 [docs/LIMITATIONS.md](docs/LIMITATIONS.md)；实测细节与时间线在
 [docs/VERIFICATION.md](docs/VERIFICATION.md)。

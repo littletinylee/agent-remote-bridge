@@ -140,7 +140,7 @@ python -m arb ask "用 Postgres 还是 SQLite?" --option Postgres --option SQLit
 - **一次性状态迁移**：`UPDATE ... WHERE state='pending'` 的 `rowcount` 决定谁赢。
 - **失败即拒绝**：投递失败、通道异常、超时，都不会被当成批准。
 
-细节：[架构](docs/ARCHITECTURE.md) ｜ [配置项](docs/CONFIG.md) ｜ [安全](docs/SECURITY.md) ｜ [部署运维](docs/DEPLOY.md)
+细节：[架构](docs/ARCHITECTURE.md) ｜ [配置项](docs/CONFIG.md) ｜ [安全](docs/SECURITY.md) ｜ [部署运维](docs/DEPLOY.md) ｜ [排障](docs/TROUBLESHOOTING.md)
 
 ## 开发
 

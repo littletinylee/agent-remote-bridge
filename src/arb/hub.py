@@ -535,11 +535,21 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 self._json(401, {"ok": False, "error": "bad node credentials"})
             return row
 
-        def _send_html(self, code: int, text: str) -> None:
+        def _cookie(self) -> str:
+            raw = self.headers.get("Cookie") or ""
+            for part in raw.split(";"):
+                name, _, value = part.strip().partition("=")
+                if name == "arb_ui":
+                    return value
+            return ""
+
+        def _send_html(self, code: int, text: str, set_cookie: str = "") -> None:
             body = text.encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            if set_cookie:
+                self.send_header("Set-Cookie", set_cookie)
             self.send_header("Connection", "close")
             self.end_headers()
             self.close_connection = True
@@ -555,8 +565,8 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 from .hub_ui import handle_ui
 
                 q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
-                status, html_text = handle_ui(store, hub, "GET", q, {})
-                self._send_html(status, html_text)
+                status, html_text, cookie = handle_ui(store, hub, "GET", q, {}, self._cookie())
+                self._send_html(status, html_text, cookie)
                 return
             if self.path.startswith("/v1/health"):
                 self._json(200, {
@@ -578,8 +588,8 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                 raw = self.rfile.read(n).decode("utf-8", "replace") if n else ""
                 form = {k: v[0] for k, v in parse_qs(raw).items()}
                 q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
-                status, html_text = handle_ui(store, hub, "POST", q, form)
-                self._send_html(status, html_text)
+                status, html_text, cookie = handle_ui(store, hub, "POST", q, form, self._cookie())
+                self._send_html(status, html_text, cookie)
                 return
             try:
                 body = self._body()

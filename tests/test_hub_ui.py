@@ -23,10 +23,25 @@ class TestWebConsole(ArbTestCase):
         self.store.put_question("AB34", self.node["node_id"], "要不要删库?")
         self.hub = FakeHub()
 
-    def test_token_is_required(self) -> None:
-        self.assertEqual(handle_ui(self.store, self.hub, "GET", {}, {})[0], 403)
+    def test_without_a_token_you_get_a_login_box(self) -> None:
+        status, html_text, _ = handle_ui(self.store, self.hub, "GET", {}, {})
+        self.assertEqual(status, 200)
+        self.assertIn("ui_token", html_text, "must ask for the token, not just refuse")
+        self.assertNotIn("AB34", html_text, "no question may leak before login")
+
+    def test_a_wrong_token_is_refused(self) -> None:
         self.assertEqual(handle_ui(self.store, self.hub, "GET", {"token": "nope"}, {})[0], 403)
-        self.assertEqual(handle_ui(self.store, self.hub, "POST", {}, {"code": "AB34", "answer": "yes"})[0], 403)
+        self.assertEqual(handle_ui(self.store, self.hub, "POST", {}, {"code": "AB34", "answer": "yes"})[0], 200)
+
+    def test_cookie_logs_you_in_and_is_set_once(self) -> None:
+        status, html_text, cookie = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK"})
+        self.assertEqual(status, 200)
+        self.assertIn("arb_ui=TOK", cookie)
+        self.assertIn("AB34", html_text)
+        status2, html2, cookie2 = handle_ui(self.store, self.hub, "GET", {}, {}, "TOK")
+        self.assertEqual(status2, 200)
+        self.assertIn("AB34", html2)
+        self.assertIn("arb_ui=TOK", cookie2)
 
     def test_disabled_without_ui_token(self) -> None:
         class Off:
@@ -36,14 +51,14 @@ class TestWebConsole(ArbTestCase):
         self.assertEqual(handle_ui(self.store, Off(), "GET", {"token": "x"}, {})[0], 404)
 
     def test_lists_pending_with_its_machine(self) -> None:
-        status, html = handle_ui(self.store, self.hub, "GET", {"token": "TOK"}, {})
+        status, html, _ = handle_ui(self.store, self.hub, "GET", {"token": "TOK"}, {})
         self.assertEqual(status, 200)
         self.assertIn("AB34", html)
         self.assertIn("workbench", html)
         self.assertIn("要不要删库", html)
 
     def test_answer_goes_to_the_node_as_the_owner(self) -> None:
-        status, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "AB34", "answer": "yes"})
+        status, _, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "AB34", "answer": "yes"})
         self.assertEqual(status, 200)
         msgs = self.store.take(self.node["node_id"], 0)
         self.assertEqual(msgs[0]["kind"], "answer")
@@ -56,12 +71,12 @@ class TestWebConsole(ArbTestCase):
         self.assertEqual(self.store.resolve("AB34")["state"], "pending", "only the node may close it")
 
     def test_unknown_code_is_refused(self) -> None:
-        status, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "ZZZZ", "answer": "yes"})
+        status, _, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "ZZZZ", "answer": "yes"})
         self.assertEqual(status, 404)
 
     def test_answer_to_a_closed_question_is_refused(self) -> None:
         self.store.close_question("AB34")
-        status, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "AB34", "answer": "yes"})
+        status, _, _ = handle_ui(self.store, self.hub, "POST", {}, {"token": "TOK", "code": "AB34", "answer": "yes"})
         self.assertEqual(status, 409)
         self.assertEqual(self.store.take(self.node["node_id"], 0), [])
 

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-remote-bridge"
+version = "1.0.0"
+description = "Remote control / human-in-the-loop bridge for AI coding agents over personal WeChat"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "littletinylee" }]
+keywords = ["ai-agent", "wechat", "human-in-the-loop", "mcp", "claude-code", "codex"]
+dependencies = []
+
+[project.optional-dependencies]
+qr = ["qrcode>=7.4"]
+
+[project.scripts]
+arb = "arb.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

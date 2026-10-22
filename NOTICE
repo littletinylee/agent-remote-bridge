@@ -1,0 +1,38 @@
+NOTICE
+======
+
+agent-remote-bridge is MIT licensed (see LICENSE).
+
+This project reuses *design knowledge and protocol semantics* from the
+following open-source projects. No source code is copied from them; the
+implementations here are independent Python code written against the same
+public HTTP protocol / hook JSON contracts.
+
+1. Tencent/openclaw-weixin  (MIT)
+   https://github.com/Tencent/openclaw-weixin
+   Used for: the WeChat iLink Bot HTTP protocol (endpoint names, request/response
+   field names, message_type/message_state/item_list encoding, errcode -14
+   semantics). docs/RESEARCH.md records exactly which endpoints were verified.
+
+2. Conn-Ho/wechat-claude-code  (Apache-2.0)
+   https://github.com/Conn-Ho/wechat-claude-code
+   Used for: independent cross-verification of the same iLink endpoints, and as
+   prior art for combining agent hooks + an MCP server for approvals.
+
+3. y49/tlive  (MIT)
+   https://github.com/y49/tlive
+   Used for: the architectural idea of riding on each vendor's own hook
+   mechanism (a "notify" mode that can never block, and an opt-in "approve" mode
+   that can hold a tool call), and the two-tier integration model
+   (hooks-only vs. wrapped).
+
+4. slopus/happy  (MIT)
+   https://github.com/slopus/happy
+   Used for: the general "local session <-> remote client" layering idea.
+
+The optional terminal QR renderer depends on `qrcode` (BSD) and, for PNG
+output, `Pillow` (HPND/MIT-CMU style). Both are optional; the bridge runs
+without them and prints a scannable fallback payload instead.
+
+WeChat, Weixin and related marks belong to Tencent. This project is not
+affiliated with or endorsed by Tencent.

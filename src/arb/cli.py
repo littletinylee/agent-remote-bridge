@@ -816,32 +816,45 @@ def _push_event(cfg: Config, ev: agents.AgentEvent, hook_mode: bool = False) -> 
     return EXIT_OK
 
 
-_SAFE_CHAIN = set(";|&><`\n")
+_SAFE_CHAIN = set(";&><\n")
 
 
 def _is_safe_read(cfg: Config, ev: "agents.AgentEvent") -> bool:
     """A narrow, boring definition of 'read-only' for the approval gate.
 
-    It must be a single command, from the allowlist (or a read-only git
-    subcommand), with no chaining/redirection/substitution, and it must not
-    mention an obvious secret.
+    A read-only command may be a *pipeline* of allowlisted commands
+    (`ls ... 2>&1 | head -50`) because every stage is read-only. What stays
+    gated: chaining (; && ||), real redirection (> <), command substitution,
+    anything outside the allowlist, and anything mentioning a secret.
     """
     if ev.tool != "Bash":
         return False
     cmd = str((ev.tool_input or {}).get("command") or "").strip()
-    if not cmd or any(ch in cmd for ch in _SAFE_CHAIN) or "$(" in cmd:
+    if not cmd:
+        return False
+    normalized = cmd.replace("2>&1", " ")
+    if any(ch in normalized for ch in _SAFE_CHAIN) or "$(" in normalized or "`" in normalized:
         return False
     low = cmd.lower()
     for secret in ("id_rsa", ".ssh", ".env", "credential", "secret", "token", "password", "wallet"):
         if secret in low:
             return False
-    parts = cmd.replace('"', " ").replace("'", " ").split()
-    if not parts:
+    segments = [s.strip() for s in normalized.split("|") if s.strip()]
+    if not segments:
         return False
-    head = parts[0].lower()
-    if head == "git":
-        return len(parts) > 1 and parts[1].lower() in {s.lower() for s in cfg.safe_git_subcommands}
-    return head in {s.lower() for s in cfg.safe_commands}
+    safe = {s.lower() for s in cfg.safe_commands}
+    git_safe = {s.lower() for s in cfg.safe_git_subcommands}
+    for seg in segments:
+        parts = seg.replace('"', " ").replace("'", " ").split()
+        if not parts:
+            return False
+        head = parts[0].lower()
+        if head == "git":
+            if not (len(parts) > 1 and parts[1].lower() in git_safe):
+                return False
+        elif head not in safe:
+            return False
+    return True
 
 
 def _claude_approval(cfg: Config, ev: agents.AgentEvent) -> int:

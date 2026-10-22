@@ -76,18 +76,51 @@ STYLE = """
 
 
 def page(body: str, title: str = "Agent Remote Bridge", refresh: int = 5) -> str:
-    meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
+    """`refresh` seconds: the page reloads itself, but only when you are idle.
+
+    Meta-refresh would wipe whatever you are typing, so instead a tiny script
+    reloads on a timer and skips the reload while an input is focused, holds text
+    or was touched. It also keeps the chat scroll position (and drops it after a
+    submit so the view lands on the newest message).
+    """
+    script = ""
+    if refresh:
+        script = f"""<script>
+(function () {{
+  var KEY = "arbChatScroll";
+  function typing() {{
+    var el = document.activeElement;
+    if (el && el.tagName === "INPUT" && (el.value || el.type === "password")) return true;
+    return Array.prototype.some.call(document.querySelectorAll("input"), function (i) {{
+      return i.dataset.dirty === "1";
+    }});
+  }}
+  document.querySelectorAll("input").forEach(function (i) {{
+    i.addEventListener("input", function () {{ i.dataset.dirty = "1"; }});
+  }});
+  document.querySelectorAll("form").forEach(function (f) {{
+    f.addEventListener("submit", function () {{ sessionStorage.removeItem(KEY); }});
+  }});
+  var log = document.querySelector(".log");
+  if (log) {{
+    var saved = sessionStorage.getItem(KEY);
+    log.scrollTop = saved ? Number(saved) : log.scrollHeight;
+    log.addEventListener("scroll", function () {{ sessionStorage.setItem(KEY, String(log.scrollTop)); }});
+  }}
+  setInterval(function () {{ if (!typing()) location.reload(); }}, {int(refresh) * 1000});
+}})();
+</script>"""
     return f"""<!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{meta}
 <title>{_esc(title)}</title>
 <style>{STYLE}</style>
 </head><body>
 <h1>{_esc(title)}</h1>
 {body}
-<footer>每 5 秒自动刷新 · 决策答复会交给对应机器本地复验；聊天由只读顾问回答，不能批准任何操作</footer>
+<footer>自动刷新（输入时会暂停） · 决策答复会交给对应机器本地复验；聊天由只读顾问回答，不能批准任何操作</footer>
+{script}
 </body></html>
 """
 

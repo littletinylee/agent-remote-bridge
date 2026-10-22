@@ -193,3 +193,13 @@ def clean_json(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [clean_json(v) for v in value]
     return value
+
+
+# Windows: start console children without giving them a console of their own.
+# Without this, a daemon that has no console (pythonw / detached) makes every
+# git/powershell child pop a Windows Terminal window.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+
+def quiet_kwargs() -> dict[str, int]:
+    return {"creationflags": NO_WINDOW} if os.name == "nt" else {}

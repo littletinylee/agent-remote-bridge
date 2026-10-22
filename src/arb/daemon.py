@@ -227,6 +227,11 @@ class Daemon:
             return "duplicate"
         try:
             outcome = self.router.handle_inbound(msg)
+            if outcome.startswith("answered:") and hasattr(self.channel, "close_question"):
+                try:
+                    self.channel.close_question(outcome.split(":", 1)[1])  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             self.store.mark_inbound(msg.msg_id, outcome)
             return outcome
         except Exception as exc:  # pragma: no cover - defensive

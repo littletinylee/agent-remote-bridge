@@ -283,20 +283,18 @@ class Hub:
                 return "unknown_code"
             answer = (raw[: m.start()] + raw[m.end():]).strip(" :：,，-")
             self.store.push(q["node_id"], answer or raw, kind="answer", code=code)
-            self.store.close_question(code)
-            node = self.store.node_by_id(q["node_id"])
-            self.say(f"✅ 已收到 #{code} → {truncate(answer or raw, 60)}\n已交回 {node['name'] if node else q['node_id']}")
-            return "answered"
+            # The node owns question state: it closes the code once its own
+            # router actually claimed the answer. Closing here made the hub
+            # report success even when the answer was rejected on the machine
+            # (e.g. "使用" is not one of allow/deny).
+            return "forwarded"
 
         # --- bare text: only when exactly one question is pending ---
         pending = self.store.pending()
         if len(pending) == 1:
             q = pending[0]
             self.store.push(q["node_id"], raw, kind="answer", code=q["code"])
-            self.store.close_question(q["code"])
-            node = self.store.node_by_id(q["node_id"])
-            self.say(f"✅ 已收到 #{q['code']} → {truncate(raw, 60)}\n已交回 {node['name'] if node else q['node_id']}")
-            return "answered_sole"
+            return "forwarded_sole"
         if len(pending) > 1:
             lines = [f"有 {len(pending)} 个待决策，请带编号回复:"] + [
                 f"#{p['code']} [{self._name(p['node_id'])}] {truncate(p['prompt'] or '', 40)}" for p in pending
@@ -470,6 +468,12 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/v1/send":
                     hub.push_from_node(node["id"], str(body.get("text") or ""), str(body.get("kind") or "notify"))
+                    self._json(200, {"ok": True})
+                    return
+                if path == "/v1/question/close":
+                    code = str(body.get("code") or "").upper()
+                    if code:
+                        store.close_question(code)
                     self._json(200, {"ok": True})
                     return
                 if path == "/v1/question":

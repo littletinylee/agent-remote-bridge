@@ -98,6 +98,14 @@ class RelayChannel(Channel):
             log_stderr(f"[relay] register_question failed: {exc}")
             return False
 
+    def close_question(self, code: str) -> bool:
+        """Tell the hub our router really claimed this answer."""
+        try:
+            resp = self._call("/v1/question/close", {"node_id": self.node_id, "token": self.token, "code": code})
+            return bool(resp.get("ok"))
+        except ChannelError:
+            return False
+
     def start(self, on_message: OnMessage, stop_event: threading.Event) -> None:
         reg = self._call("/v1/register", {"name": self.cfg.hub_node_name, "token": self.cfg.hub_token})
         self.node_id = str(reg.get("node_id") or self.node_id)

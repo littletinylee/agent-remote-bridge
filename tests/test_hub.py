@@ -121,10 +121,24 @@ class TestDecisionRouting(HubHarness):
     def test_single_pending_accepts_bare_text(self) -> None:
         a = self.register("machine-a")
         self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "只有一个问题"})
-        self.assertEqual(self.human("同意"), "answered_sole")
+        self.assertEqual(self.human("同意"), "forwarded_sole")
         msgs = self.inbox(a)
         self.assertEqual(msgs[0]["text"], "同意")
         self.assertEqual(msgs[0]["code"], "AB34")
+
+    def test_node_owns_question_state(self) -> None:
+        """The hub forwards and leaves the code open; only the node closes it.
+
+        Before this changed, the hub said "已收到" even when the machine then
+        rejected the answer (e.g. "使用" is not allow/deny), which is a false
+        success for a dangerous operation.
+        """
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
+        self.assertEqual(self.human("#AB34 yes"), "forwarded")
+        self.assertEqual(self.store.resolve("AB34")["state"], "pending", "hub must not close it")
+        self.call("/v1/question/close", {"node_id": a, "token": "tok", "code": "AB34"})
+        self.assertEqual(self.store.resolve("AB34")["state"], "closed")
 
     def test_hub_never_invents_an_answer(self) -> None:
         a = self.register("machine-a")
@@ -153,7 +167,7 @@ class TestIsolationAndBuffering(HubHarness):
     def test_duplicate_wechat_delivery_is_ignored(self) -> None:
         a = self.register("machine-a")
         self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
-        self.assertEqual(self.human("#AB34 ok", msg_id="dup-1"), "answered")
+        self.assertEqual(self.human("#AB34 ok", msg_id="dup-1"), "forwarded")
         self.assertEqual(self.human("#AB34 ok", msg_id="dup-1"), "duplicate")
         self.assertEqual(len(self.inbox(a)), 1)
 

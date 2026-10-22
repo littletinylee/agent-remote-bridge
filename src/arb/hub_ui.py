@@ -1,13 +1,10 @@
-"""Web console on the hub: see pending questions, answer them.
+"""Web console: login, pending decisions, and a WeChat-like chat window.
 
-Auth is a username + password login (defaults come from hub.json); the session is
-an HttpOnly cookie so the browser remembers it. The console is disabled entirely
-if no credentials are set.
-
-Safety model, unchanged: answering means "push this text into the node's inbox",
-exactly like a WeChat reply. The node's own router still re-checks expiry, the
-dangerous-operation gate and the once-only transition, and the hub never closes a
-question itself - the node does, after it accepts the answer.
+Chat is deliberately read-only with respect to the bridge's power: a message typed
+here goes to the same DeepSeek advisor that answers WeChat free text, and that
+advisor cannot approve anything. If the text contains a `#CODE`, it is treated as
+an answer and goes down the normal decision path instead (pushed to the machine,
+which re-checks it locally).
 """
 
 from __future__ import annotations
@@ -15,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import html
+import re
 import time
 from typing import Any
 
@@ -22,6 +20,7 @@ MAX_ANSWER = 2000
 COOKIE = "arb_ui"
 DEFAULT_USER = "q045204"
 DEFAULT_PASSWORD = "q045204"
+CODE_RE = re.compile(r"#([2-9A-HJ-NP-Z]{4})\b", re.I)
 
 
 def _esc(value: Any) -> str:
@@ -39,6 +38,43 @@ def _age(created: float | None) -> str:
     return f"{secs // 3600} 小时前"
 
 
+def _clock(ts: float | None) -> str:
+    if not ts:
+        return ""
+    return time.strftime("%H:%M", time.localtime(float(ts)))
+
+
+STYLE = """
+ :root { color-scheme: light dark }
+ body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        margin: 0 auto; padding: 16px; line-height: 1.5; max-width: 760px }
+ h1 { font-size: 18px; margin: 0 0 12px }
+ h2 { font-size: 15px; margin: 20px 0 8px; opacity: .8 }
+ .q { border: 1px solid #8884; border-radius: 10px; padding: 12px; margin: 0 0 12px }
+ .code { font-family: ui-monospace, Consolas, monospace; font-weight: 700 }
+ .meta { opacity: .75; font-size: 13px }
+ .prompt { white-space: pre-wrap; margin: 8px 0; font-size: 14px }
+ form { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap }
+ input { flex: 1; min-width: 180px; padding: 10px; font-size: 16px;
+         border-radius: 8px; border: 1px solid #8886; box-sizing: border-box }
+ button { padding: 10px 16px; font-size: 16px; border-radius: 8px; cursor: pointer }
+ .ok { background: #1a7f3722; padding: 10px; border-radius: 8px; margin-bottom: 12px }
+ .warn { background: #bb800922; padding: 10px; border-radius: 8px; margin-bottom: 12px }
+ .empty { opacity: .7 }
+ .log { border: 1px solid #8884; border-radius: 10px; padding: 10px;
+        height: 46vh; overflow-y: auto; background: #8080800d }
+ .row { display: flex; margin: 6px 0 }
+ .row.me { justify-content: flex-end }
+ .bubble { max-width: 78%; padding: 8px 12px; border-radius: 14px;
+           white-space: pre-wrap; word-break: break-word; font-size: 14px }
+ .bot .bubble { background: #3b82f622; border: 1px solid #3b82f64d }
+ .me .bubble { background: #1a7f3733; border: 1px solid #1a7f3755 }
+ .sys .bubble { background: #8881; font-size: 13px; opacity: .85 }
+ .time { font-size: 11px; opacity: .55; margin: 0 6px; align-self: flex-end }
+ footer { margin-top: 20px; font-size: 12px; opacity: .6 }
+"""
+
+
 def page(body: str, title: str = "Agent Remote Bridge", refresh: int = 5) -> str:
     meta = f'<meta http-equiv="refresh" content="{refresh}">' if refresh else ""
     return f"""<!doctype html>
@@ -47,28 +83,11 @@ def page(body: str, title: str = "Agent Remote Bridge", refresh: int = 5) -> str
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {meta}
 <title>{_esc(title)}</title>
-<style>
- :root {{ color-scheme: light dark }}
- body {{ font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-        margin: 0 auto; padding: 16px; line-height: 1.5; max-width: 720px }}
- h1 {{ font-size: 18px; margin: 0 0 12px }}
- .q {{ border: 1px solid #8884; border-radius: 10px; padding: 12px; margin: 0 0 12px }}
- .code {{ font-family: ui-monospace, Consolas, monospace; font-weight: 700 }}
- .meta {{ opacity: .75; font-size: 13px }}
- .prompt {{ white-space: pre-wrap; margin: 8px 0; font-size: 14px }}
- form {{ display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap }}
- input {{ flex: 1; min-width: 200px; padding: 10px; font-size: 16px;
-          border-radius: 8px; border: 1px solid #8886; box-sizing: border-box }}
- button {{ padding: 10px 16px; font-size: 16px; border-radius: 8px; cursor: pointer }}
- .ok {{ background: #1a7f3722; padding: 10px; border-radius: 8px; margin-bottom: 12px }}
- .warn {{ background: #bb800922; padding: 10px; border-radius: 8px; margin-bottom: 12px }}
- .empty {{ opacity: .7 }}
- footer {{ margin-top: 20px; font-size: 12px; opacity: .6 }}
-</style>
+<style>{STYLE}</style>
 </head><body>
 <h1>{_esc(title)}</h1>
 {body}
-<footer>每 5 秒自动刷新 · 答复会像微信回复一样交给对应机器，由它本地复验后执行</footer>
+<footer>每 5 秒自动刷新 · 决策答复会交给对应机器本地复验；聊天由只读顾问回答，不能批准任何操作</footer>
 </body></html>
 """
 
@@ -100,6 +119,27 @@ def _question_block(q: dict) -> str:
 </div>"""
 
 
+def _chat_block(messages: list[dict]) -> str:
+    if not messages:
+        body = '<p class="empty">还没有对话。问问进度，例如「现在几台机器在线？」「workbench 在干什么？」</p>'
+    else:
+        rows = []
+        for m in messages:
+            role = m.get("role") or "bot"
+            rows.append(
+                f'<div class="row {role}"><div class="bubble">{_esc(m.get("text"))}</div>'
+                f'<span class="time">{_esc(_clock(m.get("ts")))}</span></div>'
+            )
+        body = "".join(rows)
+    return f"""<h2>聊天</h2>
+<div class="log">{body}</div>
+<form method="post" action="/ui/chat">
+  <input type="hidden" name="chat" value="1">
+  <input type="text" name="text" placeholder="说点什么…（含 #编号 则按决策答复处理）" autocomplete="off" required>
+  <button type="submit">发送</button>
+</form>"""
+
+
 def render(store: Any, message: str = "", warning: str = "") -> str:
     rows = []
     for q in store.pending():
@@ -115,15 +155,16 @@ def render(store: Any, message: str = "", warning: str = "") -> str:
         head += f'<div class="ok">{_esc(message)}</div>'
     if warning:
         head += f'<div class="warn">{_esc(warning)}</div>'
-    if not rows:
-        body = head + '<p class="empty">当前没有待回答的问题。</p>'
+
+    if rows:
+        decisions = '<h2>待你决策</h2>' + "".join(_question_block(q) for q in rows)
     else:
-        body = head + "".join(_question_block(q) for q in rows)
-    return page(body)
+        decisions = '<p class="empty">当前没有待回答的问题。</p>'
+
+    return page(head + decisions + _chat_block(store.chat_recent(60)))
 
 
 def _session_value(user: str, password: str) -> str:
-    """A cookie the browser can hold; it is not the password itself."""
     return hashlib.sha256(f"{user}|{password}|arb-ui".encode()).hexdigest()
 
 
@@ -150,9 +191,36 @@ def handle_ui(
     if not authorized:
         return 200, login_form(), ""
 
+    # -- chat: free text, unless it carries a decision code ------------------
+    if method == "POST" and form.get("chat"):
+        text = str(form.get("text") or "").strip()[:MAX_ANSWER]
+        if text:
+            store.chat_add("me", text)
+            m = CODE_RE.search(text)
+            if m and store.resolve(m.group(1)) is not None:
+                q = store.resolve(m.group(1))
+                answer = (text[: m.start()] + text[m.end():]).strip(" :：,，-") or text
+                store.push(q["node_id"], answer, kind="answer", code=q["code"], frm=(hub.owner_ids or ["web"])[0])
+                store.audit("web-console", "answer_sent", {"code": q["code"], "via": "chat"})
+                node = store.node_by_id(q["node_id"])
+                store.chat_add("sys", f"已把答复交给 {node['name'] if node else q['node_id']}（#{q['code']}）。")
+            else:
+                advisor = getattr(hub, "chat", None)
+                if advisor is None:
+                    store.chat_add("sys", "聊天层未启用：中转站没有配置 deepseek_key_file。")
+                else:
+                    try:
+                        reply = advisor.reply(text, node_names=[n["name"] for n in store.nodes()])
+                    except Exception as exc:
+                        reply = None
+                        store.audit("web-console", "chat_error", {"error": str(exc)[:150]})
+                    store.chat_add("bot", reply or "（顾问暂时没有回答）")
+        return 200, render(store), set_cookie
+
     if method == "GET" or not str(form.get("code") or "").strip():
         return 200, render(store), set_cookie
 
+    # -- answer a pending decision ------------------------------------------
     code = str(form.get("code") or "").strip().upper()
     answer = str(form.get("answer") or "").strip()[:MAX_ANSWER]
     if not code or not answer:
@@ -169,6 +237,7 @@ def handle_ui(
     store.audit("web-console", "answer_sent", {"code": code, "answer": answer[:80]})
     node = store.node_by_id(q["node_id"])
     name = node["name"] if node else q["node_id"]
+    store.chat_add("sys", f"已把答复交给 {name}（#{code}）。")
     return 200, render(
         store, message=f"已把答复交给 {name}（#{code}）。它接受后会把 #{code} 关闭；刷新即可看到结果。"
     ), set_cookie

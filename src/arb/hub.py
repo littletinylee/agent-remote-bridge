@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS seen (
     msg_id TEXT PRIMARY KEY, at REAL
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, updated_at REAL);
+CREATE TABLE IF NOT EXISTS chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, role TEXT, text TEXT
+);
 CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, actor TEXT, action TEXT, detail TEXT
 );
@@ -114,6 +117,17 @@ class HubStore:
             "INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
             (now(), actor, action, clean_text(detail if isinstance(detail, str) else json_dumps(detail or {}))),
         )
+
+    # -- chat log --------------------------------------------------------
+    def chat_add(self, role: str, text: str) -> None:
+        self.x(
+            "INSERT INTO chat(ts,role,text) VALUES(?,?,?)",
+            (now(), role, clean_text(text)[:4000]),
+        )
+
+    def chat_recent(self, limit: int = 60) -> list[dict]:
+        rows = self.q("SELECT ts, role, text FROM chat ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in reversed(rows)]
 
     def kv_get(self, k: str, default: str = "") -> str:
         row = self.q1("SELECT v FROM kv WHERE k=?", (k,))
@@ -272,6 +286,7 @@ class Hub:
                     {"ret": ret, "errcode": errcode, "errmsg": str(resp.get("errmsg") or "")[:120]},
                 )
                 return ""
+            self.store.chat_add("bot", text)
             return str(resp.get("message_id") or "")
         return ""
 

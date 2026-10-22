@@ -5,9 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: Se
 
 ## [Unreleased]
 
-### Pending verification (needs the owner's phone)
-- W3 only: a push after ≥1 h of no WeChat interaction. Everything else in the
-  acceptance list is now measured (see `docs/VERIFICATION.md`).
+Nothing outstanding: every acceptance row in `docs/VERIFICATION.md` is measured.
+
+## [0.4.1] - 2026-10-22
+
+### Fixed
+- CI: the Windows jobs failed at the MCP handshake smoke test because the inline
+  `python -c` step was mangled by PowerShell quoting. The check now lives in
+  `scripts/mcp_smoke.py` and runs unchanged on Windows, Linux and macOS. All six
+  matrix jobs (win/linux × 3.10/3.12/3.14) are green.
+
+### Verified
+- W3: a push after **60.6 minutes** with no WeChat traffic in either direction
+  still reached the phone (server returned `message_id`, owner confirmed), so the
+  bot push is not subject to the official-account 48h window.
+- The installed configuration (real `~/.claude/settings.json`) produces the
+  expected four notifications inside a real working directory.
 
 ## [0.4.0] - 2026-10-22
 

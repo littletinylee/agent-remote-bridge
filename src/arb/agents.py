@@ -172,6 +172,19 @@ def approval_prompt(ev: AgentEvent) -> str:
     return f"{ev.title}\n{ev.body}" if ev.body else ev.title
 
 
+def hook_envelope(payload: dict[str, Any], agent: str, cwd: str | None = None) -> AgentEvent:
+    """Normalise a *hook* payload (Claude Code and Codex share the shape).
+
+    Codex 0.162 speaks the same hook contract as Claude Code - same event names
+    (UserPromptSubmit / PreToolUse / Stop / SessionStart ...) and the same
+    `hook_event_name` field - so one mapper serves both, with the agent label
+    kept for routing and display.
+    """
+    ev = claude_event(payload, cwd)
+    ev.agent = agent or ev.agent
+    return ev
+
+
 # --------------------------------------------------------------------------
 # Codex
 # --------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -489,6 +490,90 @@ def cmd_hooks(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_node(args: argparse.Namespace) -> int:
+    """Wire every agent on this machine to the bridge, each in its native form."""
+    from . import install_hooks, node_setup
+
+    cfg = _cfg()
+    only = {x.strip().lower() for x in (args.only or "").split(",") if x.strip()} or {"codex", "dsh", "claude"}
+    dry = args.dry_run
+
+    if args.action == "status":
+        st = node_setup.status(cfg.home, Path(args.dsh_profile) if args.dsh_profile else None)
+        print(f"配置目录: {cfg.home}")
+        print(f"Codex : 插件文件={'是' if st['codex']['plugin_files'] else '否'}  CLI={st['codex']['cli'] or '未找到'}")
+        print(f"DSH   : profile={st['dsh']['profile']}  已接入={'是' if st['dsh']['installed'] else '否'}")
+        print(f"Claude: settings={st['claude']['settings']}  存在={'是' if st['claude']['exists'] else '否'}")
+        print("安装: arb node setup    移除: arb node uninstall")
+        return EXIT_OK
+
+    if args.action == "uninstall":
+        out: list[str] = []
+        if "dsh" in only:
+            res = node_setup.uninstall_dsh(Path(args.dsh_profile) if args.dsh_profile else None)
+            out.append(f"DSH: {'已移除' if res.get('changed') else '未接入'} {res.get('profile', '')}")
+        if "codex" in only:
+            codex = node_setup.find_codex()
+            if codex:
+                proc = subprocess.run(
+                    [codex, "plugin", "remove", f"{node_setup.PLUGIN_NAME}@{node_setup.MARKET_NAME}"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                )
+                out.append(f"Codex: rc={proc.returncode} {(proc.stdout or proc.stderr or '').strip()[-120:]}")
+            else:
+                out.append("Codex: 未找到 CLI")
+        if "claude" in only:
+            res = install_hooks.uninstall(Path(args.settings) if args.settings else install_hooks.default_settings_path())
+            out.append(f"Claude hooks: {'已移除' if res.get('changed') else '未安装'}")
+        print("\n".join(out))
+        return EXIT_OK
+
+    # setup
+    print(f"配置目录: {cfg.home}{'  (预览，不写盘)' if dry else ''}")
+    if not dry:
+        node_setup.write_wrappers(cfg.home, sys.executable)
+
+    if "codex" in only:
+        codex = node_setup.find_codex()
+        res = node_setup.install_codex(cfg.home, sys.executable, codex, dry_run=dry)
+        print(f"\n[Codex] CLI={codex or '未找到'}")
+        for w in res["written"]:
+            print(f"  写入 {w}")
+        for c in res["commands"]:
+            print(f"  {'✓' if c['rc'] == 0 else '✗'} {c['cmd']}")
+        for e in res["errors"]:
+            print(f"  ! {e}")
+
+    if "dsh" in only:
+        profile = Path(args.dsh_profile) if args.dsh_profile else None
+        res = node_setup.install_dsh(cfg.home, sys.executable, profile, dry_run=dry)
+        if res.get("error"):
+            print(f"\n[DSH] {res['error']}")
+        elif res.get("changed"):
+            verb = "将追加（预览）" if dry else "已追加插件条目到"
+            print(f"\n[DSH] {verb} {res['profile']}")
+            if res.get("backup"):
+                print(f"  备份 {res['backup']}")
+            if res.get("block"):
+                print("  将追加:\n" + "\n".join("    " + ln for ln in res["block"].splitlines()))
+            print("  生效方式: 重启 DeepSeek Harness；模型工具里会出现 mcp__arb__ask_human")
+        else:
+            print(f"\n[DSH] 无需修改（{res.get('reason', '已是最新')}）")
+
+    if "claude" in only:
+        try:
+            res = install_hooks.install(
+                Path(args.settings) if args.settings else install_hooks.default_settings_path(),
+                cfg.home, sys.executable, dry_run=dry,
+            )
+            print(f"\n[Claude Code] {'新增 ' + ', '.join(res['added']) if res.get('changed') else '已是最新'}")
+        except ValueError as exc:
+            print(f"\n[Claude Code] {exc}")
+
+    print("\n下一步: arb start（或已在运行则无需操作）")
+    return EXIT_OK
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
     """Toggle the remote approval gate without hand-editing JSON."""
     cfg = _cfg()
@@ -569,8 +654,39 @@ def cmd_hook(args: argparse.Namespace) -> int:
     if not isinstance(payload, dict):
         payload = {"raw": raw}
 
+    if os.environ.get("ARB_HOOK_DEBUG"):
+        try:
+            from .util import now as _now
+
+            debug = _cfg().home / "hook-debug.log"
+            with debug.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    json_dumps(
+                        {
+                            "t": _now(),
+                            "agent_arg": getattr(args, "agent", ""),
+                            "argv": sys.argv[1:],
+                            "stdin_len": len(raw),
+                            "stdin_head": raw[:300],
+                            "parsed_keys": sorted(payload)[:8],
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+
     cfg = _cfg()
     agent = args.agent or agents.sniff_agent(payload)
+
+    # Hook contract (Claude Code and Codex both use it): identical event names,
+    # identical hookSpecificOutput. One path serves both, with the agent label
+    # preserved for routing.
+    if payload.get("hook_event_name"):
+        ev = agents.hook_envelope(payload, agent, cwd=os.getcwd())
+        if ev.event == "PreToolUse":
+            return _claude_approval(cfg, ev)
+        return _push_event(cfg, ev, hook_mode=True)
 
     if agent == agents.AGENT_CODEX:
         ev = agents.codex_event(payload, cwd=os.getcwd())
@@ -578,8 +694,6 @@ def cmd_hook(args: argparse.Namespace) -> int:
 
     if agent == agents.AGENT_CLAUDE:
         ev = agents.claude_event(payload, cwd=os.getcwd())
-        if ev.event == "PreToolUse":
-            return _claude_approval(cfg, ev)
         return _push_event(cfg, ev, hook_mode=True)
 
     # generic
@@ -727,6 +841,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--settings", default="", help="自定义 settings.json 路径")
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_hooks)
+
+    sp = sub.add_parser("node", help="把本机各 Agent 接上桥接（setup/uninstall/status）")
+    sp.add_argument("action", nargs="?", default="status", choices=["setup", "uninstall", "status"])
+    sp.add_argument("--only", default="", help="只处理某些 Agent，逗号分隔：codex,dsh,claude")
+    sp.add_argument("--settings", default="", help="Claude settings.json 路径")
+    sp.add_argument("--dsh-profile", default="", help="DSH cordis.patch.yml 路径")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(func=cmd_node)
 
     sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")
     sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])

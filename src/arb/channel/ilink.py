@@ -458,7 +458,12 @@ class IlinkChannel(Channel):
             ref = item.get("ref_msg")
             if isinstance(ref, dict):
                 quoted = True
-                ref_svr = ref_svr or str(ref.get("svr_id") or "")
+                nested = ref.get("message_item") or {}
+                if isinstance(nested, dict):
+                    # Measured: WeChat puts the quoted message id here, in the
+                    # same id space as send_message's message_id.
+                    ref_svr = ref_svr or str(nested.get("msg_id") or "")
+                ref_svr = ref_svr or str(ref.get("svr_id") or "") or str(ref.get("msg_id") or "")
                 # Some clients embed the original text instead of a server ID.
                 # Match only our question header, never a #CODE in its prompt
                 # or the human's answer. Quoted text is routing data, not approval.

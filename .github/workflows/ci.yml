@@ -44,4 +44,4 @@ jobs:
         env:
           PYTHONPATH: src
           ARB_HOME: ${{ runner.temp }}/arb-home
-        run: python -c "import json,subprocess,sys; p=subprocess.run([sys.executable,'-m','arb','mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params':{}})+chr(10)+json.dumps({'jsonrpc':'2.0','id':2,'method':'tools/list'})+chr(10),capture_output=True,text=True,timeout=60); print(p.stdout); assert '\"tools\"' in p.stdout, p.stderr"
+        run: python scripts/mcp_smoke.py

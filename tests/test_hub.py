@@ -171,6 +171,23 @@ class TestDecisionRouting(HubHarness):
         self.assertEqual(len(self.inbox(a)), 1)
 
 
+class TestQuestionTtl(HubHarness):
+    def test_stale_pending_is_expired_not_routed(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "old"})
+        self.store.x("UPDATE questions SET created_at = created_at - 7200 WHERE code='AB34'")
+        self.assertEqual(self.store.reap(1800), 1)
+        self.assertEqual(self.store.resolve("AB34")["state"], "expired")
+        self.assertEqual(self.human("#AB34 yes"), "unknown_code", "an expired code must not be routable")
+        self.assertEqual(self.inbox(a), [])
+
+    def test_recent_question_survives(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "new"})
+        self.assertEqual(self.store.reap(1800), 0)
+        self.assertEqual(self.store.resolve("AB34")["state"], "pending")
+
+
 class TestSenderForwarding(HubHarness):
     def test_inbox_carries_the_real_wechat_sender(self) -> None:
         a = self.register("machine-a")

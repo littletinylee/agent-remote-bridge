@@ -221,6 +221,19 @@ class HubStore:
     def close_question(self, code: str) -> None:
         self.x("UPDATE questions SET state='closed' WHERE code=?", (code.upper(),))
 
+    def reap(self, max_age: float) -> int:
+        """Expire codes nobody answered.
+
+        A stale pending code is worse than none: it keeps a bare reply
+        ambiguous and lets an old question be routed to a machine that has
+        long since moved on.
+        """
+        cutoff = now() - max(60.0, float(max_age))
+        return self.x(
+            "UPDATE questions SET state='expired' WHERE state='pending' AND created_at < ?",
+            (cutoff,),
+        )
+
 
 class Hub:
     """Routes between the one WeChat conversation and N machines."""
@@ -232,6 +245,7 @@ class Hub:
         self.name = hub_name
         self._stop = threading.Event()
         self._ctx: dict[str, str] = {}
+        self.question_ttl_s = 1800.0
         self.chat: Any = None  # set by M3 (advisor); never receives approval rights
 
     # -- outbound to WeChat ---------------------------------------------
@@ -312,7 +326,7 @@ class Hub:
         if m:
             code = m.group(1).upper()
             q = self.store.resolve(code)
-            if not q:
+            if not q or q["state"] != "pending":
                 self.say(f"没有 #{code} 这个待决策项。/pending 查看")
                 return "unknown_code"
             answer = (raw[: m.start()] + raw[m.end():]).strip(" :：,，-")
@@ -381,7 +395,14 @@ class Hub:
         buf = self.store.kv_get("ilink.buf", "")
         timeout = 35.0
         failures = 0
+        last_reap = 0.0
         while not self._stop.is_set():
+            if now() - last_reap > 60:
+                try:
+                    self.store.reap(self.question_ttl_s)
+                except Exception:
+                    pass
+                last_reap = now()
             try:
                 resp = self.client.get_updates(buf, timeout=timeout)
                 errcode = int(resp.get("errcode", 0) or 0)
@@ -550,6 +571,7 @@ def serve_hub(cfg_path: str) -> int:
     creds = json.loads(Path(cfg["ilink_creds"]).read_text(encoding="utf-8-sig"))
     client = IlinkClient(creds["base_url"], creds["token"])
     hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
+    hub.question_ttl_s = float(cfg.get("question_ttl_s", 1800))
 
     key_file = cfg.get("deepseek_key_file")
     if key_file and Path(key_file).exists():

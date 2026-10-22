@@ -147,6 +147,30 @@ class TestDecisionRouting(HubHarness):
         self.assertTrue(self.store.resolve("AB34") is not None)
 
 
+    def test_quoted_reply_binds_to_the_exact_message(self) -> None:
+        """Two questions at once: quoting one of them must win over #CODE rules."""
+        a = self.register("machine-a")
+        b = self.register("machine-b")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "A 的问题"})
+        self.call("/v1/question", {"node_id": b, "token": "tok", "code": "CD56", "prompt": "B 的问题"})
+        q = self.store.resolve("CD56")
+        self.assertTrue(q["msg_id"], "the pushed message id must be stored")
+        self.assertEqual(self.hub.handle_human("q1", self.owner, "同意", ref_svr_id=q["msg_id"]), "forwarded_quote")
+        self.assertEqual(self.inbox(a), [], "must not leak to the other machine")
+        msgs = self.inbox(b)
+        self.assertEqual(msgs[0]["code"], "CD56")
+        self.assertEqual(msgs[0]["text"], "同意")
+
+    def test_quote_of_a_handled_question_is_ignored(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
+        mid = self.store.resolve("AB34")["msg_id"]
+        self.hub.handle_human("q1", self.owner, "yes", ref_svr_id=mid)
+        self.call("/v1/question/close", {"node_id": a, "token": "tok", "code": "AB34"})
+        self.assertEqual(self.hub.handle_human("q2", self.owner, "yes", ref_svr_id=mid), "already_handled")
+        self.assertEqual(len(self.inbox(a)), 1)
+
+
 class TestIsolationAndBuffering(HubHarness):
     def test_cross_machine_traffic_is_isolated(self) -> None:
         a = self.register("machine-a")

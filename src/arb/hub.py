@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS inbox (
 );
 CREATE INDEX IF NOT EXISTS idx_inbox_node ON inbox(node_id, delivered_at);
 CREATE TABLE IF NOT EXISTS questions (
-    code TEXT PRIMARY KEY, node_id TEXT NOT NULL, prompt TEXT, created_at REAL, state TEXT DEFAULT 'pending'
+    code TEXT PRIMARY KEY, node_id TEXT NOT NULL, prompt TEXT, created_at REAL,
+    state TEXT DEFAULT 'pending', msg_id TEXT
 );
 CREATE TABLE IF NOT EXISTS seen (
     msg_id TEXT PRIMARY KEY, at REAL
@@ -81,6 +82,9 @@ class HubStore:
         self._local = threading.local()
         conn = self.conn()
         conn.executescript(SCHEMA)
+        cols = {r['name'] for r in conn.execute("PRAGMA table_info(questions)").fetchall()}
+        if 'msg_id' not in cols:  # migrate a hub created before quoted replies
+            conn.execute("ALTER TABLE questions ADD COLUMN msg_id TEXT")
         conn.commit()
 
     def conn(self) -> sqlite3.Connection:
@@ -187,15 +191,22 @@ class HubStore:
             time.sleep(0.2)
 
     # -- questions (routing index only) ----------------------------------
-    def put_question(self, code: str, node_id: str, prompt: str) -> None:
+    def put_question(self, code: str, node_id: str, prompt: str, msg_id: str = "") -> None:
         self.x(
-            "INSERT INTO questions(code,node_id,prompt,created_at,state) VALUES(?,?,?,?,'pending') "
-            "ON CONFLICT(code) DO UPDATE SET node_id=excluded.node_id, prompt=excluded.prompt",
-            (code.upper(), node_id, clean_text(prompt), now()),
+            "INSERT INTO questions(code,node_id,prompt,created_at,state,msg_id) VALUES(?,?,?,?,'pending',?) "
+            "ON CONFLICT(code) DO UPDATE SET node_id=excluded.node_id, prompt=excluded.prompt, "
+            "state='pending', msg_id=excluded.msg_id",
+            (code.upper(), node_id, clean_text(prompt), now(), msg_id or None),
         )
 
     def resolve(self, code: str) -> sqlite3.Row | None:
         return self.q1("SELECT * FROM questions WHERE code=?", (code.upper(),))
+
+    def resolve_by_msg(self, msg_id: str) -> sqlite3.Row | None:
+        """A quoted reply points at the pushed message, not at a code."""
+        if not msg_id:
+            return None
+        return self.q1("SELECT * FROM questions WHERE msg_id=? ORDER BY created_at DESC LIMIT 1", (msg_id,))
 
     def pending(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.q("SELECT * FROM questions WHERE state='pending' ORDER BY created_at")]
@@ -217,18 +228,19 @@ class Hub:
         self.chat: Any = None  # set by M3 (advisor); never receives approval rights
 
     # -- outbound to WeChat ---------------------------------------------
-    def say(self, text: str) -> bool:
+    def say(self, text: str) -> str:
         for user in self.owner_ids:
             ctx = self._ctx.get(user) or self.store.kv_get(f"ctx.{user}", "")
             try:
                 resp = self.client.send_message(user, clean_text(text), context_token=ctx)
             except Exception as exc:
                 self.store.audit("hub", "send_failed", {"error": str(exc)[:200]})
-                return False
+                return ""
             if int(resp.get("errcode", 0) or 0) == -14:
                 self.store.audit("hub", "token_expired", {})
-                return False
-        return True
+                return ""
+            return str(resp.get("message_id") or "")
+        return ""
 
     def push_from_node(self, node_id: str, text: str, kind: str = "notify", code: str | None = None) -> None:
         node = self.store.node_by_id(node_id)
@@ -238,11 +250,15 @@ class Hub:
     def question_from_node(self, node_id: str, code: str, prompt: str) -> None:
         node = self.store.node_by_id(node_id)
         label = node["name"] if node else node_id
-        self.store.put_question(code, node_id, prompt)
-        self.say(f"🚨 需要你决策  #{code.upper()}\n[{label}]\n{truncate(prompt, 900)}\n回复: #{code.upper()} 你的答复")
+        out_id = self.say(
+            f"🚨 需要你决策  #{code.upper()}\n[{label}]\n{truncate(prompt, 900)}\n"
+            f"回复: #{code.upper()} 你的答复（或引用本条消息直接回，最稳）"
+        )
+        self.store.put_question(code, node_id, prompt, out_id)
 
     # -- inbound from WeChat --------------------------------------------
-    def handle_human(self, msg_id: str, from_user: str, text: str, context_token: str = "") -> str:
+    def handle_human(self, msg_id: str, from_user: str, text: str, context_token: str = "",
+                     ref_svr_id: str = "") -> str:
         if self.store.q1("SELECT 1 FROM seen WHERE msg_id=?", (msg_id,)):
             return "duplicate"
         self.store.x("INSERT INTO seen(msg_id,at) VALUES(?,?)", (msg_id, now()))
@@ -273,7 +289,18 @@ class Hub:
                 self.say(f"→ 已发给 {name}")
                 return "routed"
 
-        # --- decision by code: the ONLY way an answer reaches a machine ---
+        # --- quoted reply: binds to the exact pushed message (strongest) ---
+        if ref_svr_id:
+            q = self.store.resolve_by_msg(ref_svr_id)
+            if q is not None:
+                if q["state"] != "pending":
+                    self.say(f"⚠️ 你引用的那条 (#{q['code']}) 已经处理过了，这条回复被忽略。")
+                    return "already_handled"
+                self.store.push(q["node_id"], raw, kind="answer", code=q["code"])
+                return "forwarded_quote"
+            self.store.audit("hub", "quote_unknown", {"ref": ref_svr_id[:32]})
+
+        # --- decision by code ---
         m = CODE_RE.search(raw)
         if m:
             code = m.group(1).upper()
@@ -375,8 +402,13 @@ class Hub:
                         if int(item.get("type") or 0) == 1:
                             text += str((item.get("text_item") or {}).get("text") or "")
                     mid = str(msg.get("message_id") or f"m{int(now()*1000)}")
+                    ref = ""
+                    for item in msg.get("item_list") or []:
+                        r = item.get("ref_msg") or {}
+                        if r.get("svr_id"):
+                            ref = str(r["svr_id"])
                     if text.strip():
-                        self.handle_human(mid, from_user, text, str(msg.get("context_token") or ""))
+                        self.handle_human(mid, from_user, text, str(msg.get("context_token") or ""), ref)
                 failures = 0
             except Exception as exc:  # network hiccup: back off, keep serving nodes
                 failures += 1

@@ -257,8 +257,18 @@ class Hub:
             except Exception as exc:
                 self.store.audit("hub", "send_failed", {"error": str(exc)[:200]})
                 return ""
-            if int(resp.get("errcode", 0) or 0) == -14:
-                self.store.audit("hub", "token_expired", {})
+            ret = int(resp.get("ret", 0) or 0)
+            errcode = int(resp.get("errcode", 0) or 0)
+            if errcode == -14 or ret == -14:
+                self.store.audit("hub", "token_expired", {"ret": ret, "errcode": errcode})
+                return ""
+            if errcode or ret:
+                # Anything else is a real failure (e.g. ret -2 "prepare failed"
+                # when the bot session is stale) and must be visible, not swallowed.
+                self.store.audit(
+                    "hub", "send_failed",
+                    {"ret": ret, "errcode": errcode, "errmsg": str(resp.get("errmsg") or "")[:120]},
+                )
                 return ""
             return str(resp.get("message_id") or "")
         return ""
@@ -268,7 +278,7 @@ class Hub:
         label = node["name"] if node else node_id
         self.say(f"[{label}] {truncate(text, 1200)}")
 
-    def question_from_node(self, node_id: str, code: str, prompt: str) -> None:
+    def question_from_node(self, node_id: str, code: str, prompt: str) -> bool:
         node = self.store.node_by_id(node_id)
         label = node["name"] if node else node_id
         out_id = self.say(
@@ -276,6 +286,11 @@ class Hub:
             f"回复: #{code.upper()} 你的答复（或引用本条消息直接回，最稳）"
         )
         self.store.put_question(code, node_id, prompt, out_id)
+        if not out_id:
+            # The code is indexed, but the human has not been told. The caller
+            # must report this so the node can fall back to its own push.
+            self.store.audit("hub", "question_push_failed", {"code": code.upper()})
+        return bool(out_id)
 
     # -- inbound from WeChat --------------------------------------------
     def handle_human(self, msg_id: str, from_user: str, text: str, context_token: str = "",
@@ -541,8 +556,11 @@ def make_handler(hub: Hub) -> type[BaseHTTPRequestHandler]:
                     if not CODE_RE.fullmatch(f"#{code}"):
                         self._json(400, {"ok": False, "error": "bad code"})
                         return
-                    hub.question_from_node(node["id"], code, str(body.get("prompt") or ""))
-                    self._json(200, {"ok": True, "code": code})
+                    pushed = hub.question_from_node(node["id"], code, str(body.get("prompt") or ""))
+                    self._json(200, {
+                        "ok": pushed, "code": code,
+                        "error": "" if pushed else "hub could not push to WeChat",
+                    })
                     return
                 if path == "/v1/snapshot":
                     store.x(

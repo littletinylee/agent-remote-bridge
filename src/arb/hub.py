@@ -467,6 +467,13 @@ class Hub:
                 if suggested > 0:
                     timeout = max(5.0, min(60.0, suggested / 1000.0))
                 for msg in resp.get("msgs") or []:
+                    try:
+                        n = int(self.store.kv_get("raw_samples", "0") or 0)
+                    except ValueError:
+                        n = 0
+                    if n < 5:
+                        self.store.kv_set("raw_samples", str(n + 1))
+                        self.store.audit("hub", "inbound_raw", {"raw": json_dumps(msg)[:900]})
                     parsed = IlinkChannel._parse(msg)
                     if parsed is None:
                         continue

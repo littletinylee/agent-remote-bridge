@@ -574,6 +574,13 @@ def cmd_node(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_hub(args: argparse.Namespace) -> int:
+    """Run the relay hub. This is what systemd starts on the server."""
+    from . import hub
+
+    return hub.serve_hub(args.config)
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
     """Toggle the remote approval gate without hand-editing JSON."""
     cfg = _cfg()
@@ -849,6 +856,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--dsh-profile", default="", help="DSH cordis.patch.yml 路径")
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_node)
+
+    sp = sub.add_parser("hub", help="在服务器上运行中转 Hub（serve）")
+    sp.add_argument("action", nargs="?", default="serve", choices=["serve"])
+    sp.add_argument("config", nargs="?", default="/etc/arb/hub.json")
+    sp.set_defaults(func=cmd_hub)
 
     sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")
     sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])

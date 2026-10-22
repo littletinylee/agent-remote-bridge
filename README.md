@@ -1,5 +1,9 @@
 # Agent Remote Bridge
 
+[![ci](https://github.com/littletinylee/agent-remote-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/littletinylee/agent-remote-bridge/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **用普通个人微信远程监督 AI 编程智能体，并参与关键决策。**
 
 不是聊天机器人，也不是 GitHub 提交监控 —— 它是 **AI Agent Remote Control / Human-in-the-Loop Bridge**：

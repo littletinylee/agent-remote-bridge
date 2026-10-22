@@ -231,7 +231,7 @@ t+ 50s  state=healthy  healthy=True  uptime 113s（还是同一个进程）
 | 渠道异常不会错误批准 | ✅ 测试 + 真机（裸 `1` 被拒） |
 | 断线恢复 | ✅ 测试（重启后 pending 仍可答；投递失败会重试） |
 | 长时无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
-| 核心代码按里程碑提交 | ✅ 本地 23 个提交 + 4 个 tag（push 待 GitHub 仓库创建） |
+| 核心代码按里程碑提交 | ✅ 已推送 https://github.com/littletinylee/agent-remote-bridge （main `1323621` + tag `v0.1.0`–`v0.4.0`，远端 refs 已核对） |
 | 两种以上 Agent 真实验证 | ✅ Claude Code + Codex，hooks / MCP / CLI 三条路径 |
 | 真实安装配置可用 | ✅ 用真实 `~/.claude/settings.json` 跑 `claude -p`，4 条推送全部送达 |
 | 安装可撤销 | ✅ `arb hooks/service uninstall`、`arb logout`、`claude mcp remove arb` |

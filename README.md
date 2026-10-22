@@ -84,9 +84,9 @@ arb service install                        # 可选：登录 Windows 时自动�
 
 | Agent | 通知 | 主动提问 | 远程审批 |
 |---|---|---|---|
-| **Claude Code** | hooks | MCP | ✅ hooks `PreToolUse` |
-| **Codex** | `notify` | MCP（需放宽审批）或 CLI | ❌ 无审批 hook |
-| 其他 MCP 客户端（DSH / OpenCode…） | — | MCP | 视 Agent 是否有 hook |
+| **Claude Code** | hooks ✅ | MCP ✅ | ✅ hooks `PreToolUse` |
+| **Codex** | `notify` ✅ | MCP ✅ / CLI ✅ | ❌ 无审批 hook |
+| 其他 MCP 客户端（DSH / OpenCode…） | — | MCP（未实测） | 视 Agent 是否有 hook |
 
 **Claude Code**
 

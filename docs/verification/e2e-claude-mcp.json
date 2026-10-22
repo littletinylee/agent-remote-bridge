@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "details": {
+    "elapsed_s": 4.6,
+    "claude_exit": 0,
+    "question_answered": 1,
+    "used_answer": true,
+    "asked_via_mcp": true,
+    "stats": {
+      "sessions": 1,
+      "active_sessions": 1,
+      "pending_questions": 0,
+      "questions_total": 1,
+      "answered": 1,
+      "expired": 0,
+      "inbound": 1
+    }
+  }
+}

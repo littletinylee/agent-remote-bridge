@@ -57,7 +57,26 @@ MCP 协议（两种分帧）、各 Agent 的 hook 载荷解析。
    `codex-code-mode-host.exe`），任何工具调用都会 `host executable was not found`。改用同机完整的
    0.162.0-alpha.17.2 构建后一切正常 —— 这是环境问题，不是桥接问题。
 
-## 3. 并发 / 非阻塞 / 不串线（通过）
+## 3. 两条接入路径都已实测（Claude Code MCP + Codex）
+
+脚本 `scripts/e2e_claude_mcp.py`，记录 `docs/verification/e2e-claude-mcp.json`。
+
+```
+[daemon] 🚨 需要你决策  #XAH4 … 1) Postgres  2) SQLite
+[human]  -> 1
+[daemon] ✅ 已收到 #XAH4 → Postgres
+[claude] The option chosen was **"Postgres"**   (exit 0, 4.6s)
+```
+
+这是 **MCP 路径**（`--mcp-config` 注入、无 hooks），与第 1 节的 **hooks 路径**互补。
+至此每个 Agent 的两条接入面都被真实 CLI 验证过：
+
+| Agent | hooks / notify | MCP `ask_human` | CLI `arb ask` |
+|---|---|---|---|
+| Claude Code 2.1.181 | ✅ `PreToolUse` 审批 + `Stop` 通知 | ✅ #XAH4 | ✅（同一入口，Codex 侧已证） |
+| Codex 0.162.0-alpha.17.2 | ✅ `notify` | ✅ 回答 "Postgres" | ✅ 回答 "Postgres" |
+
+## 4. 并发 / 非阻塞 / 不串线（通过）
 
 脚本 `scripts/e2e_concurrent.py`，记录 `docs/verification/e2e-concurrent.json`。一个守护进程，四个真实进程：
 
@@ -82,7 +101,7 @@ phase2（两个问题同时等待）：
 意义：这正好是验收场景（A 写代码、B 要决策、C 干别的）—— **A 和 C 在 B 阻塞期间完成**，
 B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 
-## 4. 安全性质（离线测试）
+## 5. 安全性质（离线测试）
 
 | 性质 | 测试 |
 |---|---|
@@ -94,7 +113,7 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 | 通道故障不会变成"已批准" | `test_failed_delivery_never_counts_as_an_answer` |
 | 重复投递不重复生效 | `test_duplicate_inbound_message_id_is_ignored` |
 
-## 5. 真实个人微信（已实测）
+## 6. 真实个人微信（已实测）
 
 机主于 12:00 前后用手机微信扫码登录（bot `ffbb…@im.bot`），随后完成了下列真实交互。
 逐条证据见 `docs/verification/wechat-transcript.json`（数据库原始记录，已脱敏：微信号与账号 id 只保留前 4 位）。
@@ -126,7 +145,7 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 - 仍待实测的一步：间隔 ≥1 小时完全不发消息，再执行 `arb test-push`，确认仍然送达。
   这一项被安排在稍后用定时提醒复测，结果会追加到本节。
 
-## 6. 结论
+## 7. 结论
 
 | 验收项 | 状态 |
 |---|---|
@@ -140,5 +159,5 @@ B 最后带着你的答复继续，且两个并发问题的答案没有互换。
 | 渠道异常不会错误批准 | ✅ 测试 + 真机（裸 `1` 被拒） |
 | 断线恢复 | ✅ 测试（重启后 pending 仍可答；投递失败会重试） |
 | 长时间无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
-| 核心代码按里程碑提交 | ✅ 本地 5 个提交（push 待 GitHub 仓库创建） |
-| 两种以上 Agent 真实验证 | ✅ Claude Code + Codex |
+| 核心代码按里程碑提交 | ✅ 本地 13 个提交（push 待 GitHub 仓库创建） |
+| 两种以上 Agent 真实验证 | ✅ Claude Code + Codex，hooks / MCP / CLI 三条路径 |

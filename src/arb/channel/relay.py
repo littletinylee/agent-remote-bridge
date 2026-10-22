@@ -107,6 +107,9 @@ class RelayChannel(Channel):
         Prefer the newest session's working directory (that is where the agent
         actually works), falling back to our own cwd.
         """
+        workdir = (getattr(self.cfg, "workdir", "") or "").strip()
+        if workdir and os.path.isdir(os.path.join(workdir, ".git")):
+            return workdir
         try:
             sessions = self.store.list_sessions(limit=8) if self.store is not None else []
             dirs = [(s.get("cwd") or "").strip() for s in sessions]

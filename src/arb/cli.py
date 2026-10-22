@@ -135,6 +135,15 @@ def cmd_stop(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    # Remember where we were started: this is the project the console shows.
+    try:
+        cfg = _cfg()
+        here = os.getcwd()
+        if cfg.workdir != here:
+            cfg.workdir = here
+            cfg.save()
+    except Exception:
+        pass
     from .daemon import run_daemon
 
     cfg = _cfg()

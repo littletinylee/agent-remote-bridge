@@ -45,6 +45,7 @@ class Config:
 
     # channel
     channel: str = "ilink"  # ilink | console | relay
+    workdir: str = ""  # where the daemon was started; reported as the project
     hub_url: str = ""
     hub_node_name: str = ""
     hub_token: str = ""

@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, kind TEXT,
     prompt_tokens INTEGER, completion_tokens INTEGER
 );
+CREATE TABLE IF NOT EXISTS outbound (
+    msg_id TEXT PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT, ts REAL
+);
 CREATE TABLE IF NOT EXISTS chat (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, role TEXT, text TEXT
 );
@@ -143,6 +146,22 @@ class HubStore:
             "completion": int(row["c"]) if row else 0,
             "calls": int(row["n"]) if row else 0,
         }
+
+    # -- outbound message index (so any quoted reply can be routed) ------
+    def remember_outbound(self, msg_id: str, node_id: str, kind: str = "notify") -> None:
+        if not msg_id:
+            return
+        self.x(
+            "INSERT INTO outbound(msg_id,node_id,kind,ts) VALUES(?,?,?,?) "
+            "ON CONFLICT(msg_id) DO UPDATE SET node_id=excluded.node_id",
+            (str(msg_id), node_id, kind, now()),
+        )
+
+    def outbound_target(self, msg_id: str) -> str:
+        if not msg_id:
+            return ""
+        row = self.q1("SELECT node_id FROM outbound WHERE msg_id=?", (str(msg_id),))
+        return str(row["node_id"]) if row else ""
 
     # -- chat log --------------------------------------------------------
     def chat_add(self, role: str, text: str) -> None:
@@ -321,7 +340,10 @@ class Hub:
     def push_from_node(self, node_id: str, text: str, kind: str = "notify", code: str | None = None) -> None:
         node = self.store.node_by_id(node_id)
         label = node["name"] if node else node_id
-        self.say(f"[{label}] {truncate(text, 1200)}")
+        out_id = self.say(f"[{label}] {truncate(text, 1200)}")
+        # Keep the message id so a quoted reply to this notification can be
+        # delivered back to the same machine.
+        self.store.remember_outbound(out_id, node_id, kind)
 
     def question_from_node(self, node_id: str, code: str, prompt: str, project: str = "") -> bool:
         node = self.store.node_by_id(node_id)
@@ -382,8 +404,18 @@ class Hub:
                 self.store.push(q["node_id"], raw, kind="answer", code=q["code"], frm=from_user)
                 self.store.audit("hub", "answer_forwarded", {"code": q["code"], "source": "quote"})
                 return "forwarded_quote"
+            # Not a question - maybe it was a notification or a chat message from
+            # a machine. If we sent the quoted message, hand the reply to it.
+            target = self.store.outbound_target(ref_svr_id)
+            if target:
+                node = self.store.node_by_id(target)
+                name = node["name"] if node else target
+                self.store.push(target, raw, kind="human", frm=from_user)
+                self.store.audit("hub", "quote_to_machine", {"ref": ref_svr_id[:32], "node": name})
+                self.say(f"→ 已把这条回复转给 [{name}]")
+                return "forwarded_to_machine"
             self.store.audit("hub", "quote_unknown", {"ref": ref_svr_id[:32], "code": ref_code})
-            self.say("⚠️ 无法识别你引用的提问。请单独回复 #CODE 你的答复，或 /pending 查看。")
+            self.say("⚠️ 这条消息我查不到来源（可能太久了）。可以：直接发消息我会转给最近发通知的机器；或回复 #编号 处理待决问题。")
             return "unknown_quote"
 
         # --- decision by code ---

@@ -188,6 +188,30 @@ class TestQuestionTtl(HubHarness):
         self.assertEqual(self.store.resolve("AB34")["state"], "pending")
 
 
+class TestQuoteToMachine(HubHarness):
+    """A quoted notification must be deliverable, not just rejected."""
+
+    def test_quote_of_a_notification_goes_back_to_that_machine(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/send", {"node_id": a, "token": "tok", "text": "M3 完成，请试玩确认", "kind": "notify"})
+        self.assertEqual(self.hub.handle_human("q1", self.owner, "ok", "", "m1"), "forwarded_to_machine")
+        msgs = self.inbox(a)
+        self.assertEqual(msgs[0]["kind"], "human")
+        self.assertEqual(msgs[0]["text"], "ok")
+        self.assertEqual(msgs[0]["frm"], self.owner)
+
+    def test_quote_of_an_unknown_message_stays_friendly(self) -> None:
+        self.register("machine-a")
+        self.assertEqual(self.hub.handle_human("q2", self.owner, "ok", "", "999999"), "unknown_quote")
+
+    def test_question_quote_still_wins_over_notification_routing(self) -> None:
+        a = self.register("machine-a")
+        self.call("/v1/question", {"node_id": a, "token": "tok", "code": "AB34", "prompt": "q"})
+        mid = self.store.resolve("AB34")["msg_id"]
+        self.assertEqual(self.hub.handle_human("q3", self.owner, "yes", "", mid), "forwarded_quote")
+        self.assertEqual(self.inbox(a)[0]["kind"], "answer")
+
+
 class TestReplyByIndex(HubHarness):
     """The owner cannot quote a bot message on WeChat, so a bare number must work."""
 

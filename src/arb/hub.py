@@ -571,7 +571,7 @@ def serve_hub(cfg_path: str) -> int:
         log_stderr(f"[hub] WARNING: plaintext, listening on 0.0.0.0:{port}")
 
     threading.Thread(target=hub.run_wechat, name="wechat", daemon=True).start()
-    log_stderr(f"[hub] state={cfg['state']} nodes=0 owner={cfg['owner_ids']}")
+    log_stderr(f"[hub] state={cfg['state']} nodes={len(store.nodes())} owner={cfg['owner_ids']}")
     try:
         httpd.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import ssl
 import threading
 import time
@@ -39,6 +40,7 @@ class RelayChannel(Channel):
         self._last_error = ""
         self._stop = threading.Event()
         self._ssl = self._make_ssl(cfg.hub_fingerprint)
+        self._last_snapshot = 0.0
 
     # -- tls -------------------------------------------------------------
     @staticmethod
@@ -98,6 +100,20 @@ class RelayChannel(Channel):
             log_stderr(f"[relay] register_question failed: {exc}")
             return False
 
+    def send_snapshot(self) -> None:
+        """Publish a factual snapshot so the hub's advisor can answer questions."""
+        try:
+            from .. import snapshot as snap_mod
+
+            snap = snap_mod.build(os.getcwd(), self.store)
+            self._call("/v1/snapshot", {
+                "node_id": self.node_id, "token": self.token,
+                "snapshot": snap, "projects": snap.get("projects") or [],
+            })
+            self._last_snapshot = time.time()
+        except Exception as exc:
+            log_stderr(f"[relay] snapshot failed: {exc}")
+
     def close_question(self, code: str) -> bool:
         """Tell the hub our router really claimed this answer."""
         try:
@@ -138,6 +154,8 @@ class RelayChannel(Channel):
                 self._healthy = True
                 self._last_error = ""
                 failures = 0
+                if time.time() - getattr(self, "_last_snapshot", 0) > 60:
+                    self.send_snapshot()
             except ChannelError as exc:
                 failures += 1
                 self._healthy = False

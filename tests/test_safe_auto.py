@@ -23,6 +23,8 @@ class TestSafeAutoApprove(ArbTestCase):
             "wc -c a b",
             "git status",
             "git log --oneline -5",
+            "ls -la \"C:/tmp/x\" 2>&1 | head -50",
+            "cat out.json | wc -l",
         ):
             self.assertTrue(_is_safe_read(self.cfg, self.ev(cmd)), cmd)
 
@@ -36,6 +38,9 @@ class TestSafeAutoApprove(ArbTestCase):
             "python -c 'print(1)'",
             "git commit -m x",
             "npm install",
+            "ls | rm -rf x",
+            "cat a | sh",
+            "ls | python x.py",
         ):
             self.assertFalse(_is_safe_read(self.cfg, self.ev(cmd)), cmd)
 

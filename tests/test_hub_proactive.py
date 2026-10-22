@@ -68,7 +68,7 @@ class TestRestartAndStaleNodes(ArbTestCase):
 
     def test_a_restart_does_not_repeat_advice(self) -> None:
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 200")
         first = Proposer(self.hub, self.store, interval=0.01)
         self.assertTrue(first.tick())
         # a new instance == a hub restart
@@ -83,7 +83,7 @@ class TestRestartAndStaleNodes(ArbTestCase):
         fresh = Proposer(self.hub, self.store, interval=0.01)
         self.assertEqual(len(fresh._sent), 3)
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 200")
         self.assertIsNone(fresh.tick(), "budget must persist across restarts")
 
     def test_a_long_dead_registration_is_not_reported(self) -> None:
@@ -91,7 +91,7 @@ class TestRestartAndStaleNodes(ArbTestCase):
         self.assertIsNone(evaluate(st, "", 0)[0])
 
     def test_a_recently_dropped_machine_is_reported(self) -> None:
-        st = state([{"name": "laptop2", "online": False, "last_seen": time.time() - 60}])
+        st = state([{"name": "laptop2", "online": False, "last_seen": time.time() - 200}])
         self.assertIn("laptop2", evaluate(st, "", 0)[0] or "")
 
 
@@ -110,7 +110,7 @@ class TestProposer(ArbTestCase):
 
     def test_tick_sends_at_most_once_per_change(self) -> None:
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 200")
         first = self.prop.tick()
         second = self.prop.tick()
         self.assertTrue(first)
@@ -119,7 +119,7 @@ class TestProposer(ArbTestCase):
 
     def test_audit_records_what_was_said(self) -> None:
         self.store.register("a", "t1")
-        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 60")
+        self.store.x("UPDATE nodes SET last_seen = strftime('%s','now') - 200")
         self.prop.tick()
         actions = [r["action"] for r in self.store.q("SELECT action FROM audit")]
         self.assertIn("sent", actions)

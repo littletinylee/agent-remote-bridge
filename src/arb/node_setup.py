@@ -27,6 +27,7 @@ from typing import Any
 MARKET_NAME = "agent-remote-bridge"
 PLUGIN_NAME = "agent-remote-bridge"
 DSH_ENTRY_ID = "mcp-arb"
+MARKER_COMMENT = "# added by agent-remote-bridge (arb node setup)"
 CODEX_HOOK_EVENTS: dict[str, tuple[str | None, int]] = {
     "SessionStart": (None, 45),
     "UserPromptSubmit": (None, 45),
@@ -179,19 +180,24 @@ def install_codex(home: Path, python_exe: str, codex_exe: str, dry_run: bool = F
 # DSH: one cordis plugin entry
 # --------------------------------------------------------------------------
 def dsh_yaml(home: Path, python_exe: str) -> str:
+    """The user patch layer must INSERT a new entry; a bare `- id:` is an
+    override and the loader silently skips ids it does not already know
+    (verified in the loader: `if (!target) { warn('patch: entry not found'); continue }`).
+    """
     src = Path(__file__).resolve().parents[1].as_posix()
     return (
-        f"- id: {DSH_ENTRY_ID}\n"
-        f"  name: '@deepseek-ai/dsh-mcp-client'\n"
-        f"  config:\n"
-        f"    serverName: arb\n"
-        f"    transport: stdio\n"
-        f"    command: '{python_exe}'\n"
-        f"    args: ['-m', 'arb', 'mcp', '--agent', 'dsh']\n"
-        f"    env:\n"
-        f"      PYTHONPATH: '{src}'\n"
-        f"      ARB_HOME: '{home.as_posix()}'\n"
-        f"    toolCallTimeoutMs: 900000\n"
+        f"- insert:\n"
+        f"    - id: {DSH_ENTRY_ID}\n"
+        f"      name: '@deepseek-ai/dsh-mcp-client'\n"
+        f"      config:\n"
+        f"        serverName: arb\n"
+        f"        transport: stdio\n"
+        f"        command: '{python_exe}'\n"
+        f"        args: ['-m', 'arb', 'mcp', '--agent', 'dsh']\n"
+        f"        env:\n"
+        f"          PYTHONPATH: '{src}'\n"
+        f"          ARB_HOME: '{home.as_posix()}'\n"
+        f"        toolCallTimeoutMs: 900000\n"
     )
 
 
@@ -235,6 +241,8 @@ def install_dsh(home: Path, python_exe: str, profile: Path | None = None, dry_ru
 
 
 def uninstall_dsh(profile: Path | None = None) -> dict[str, Any]:
+    """Remove our `- insert:` block (and the marker comment) without touching
+    any other patch entry."""
     profile = profile or default_dsh_profile()
     if not profile.exists():
         return {"changed": False, "profile": str(profile)}
@@ -245,21 +253,23 @@ def uninstall_dsh(profile: Path | None = None) -> dict[str, Any]:
     out: list[str] = []
     skipping = False
     for line in lines:
-        if line.startswith(f"- id: {DSH_ENTRY_ID}"):
+        if line.startswith(MARKER_COMMENT):
+            continue  # our header goes with the entry
+        if line.startswith("- insert:") or line.startswith(f"- id: {DSH_ENTRY_ID}"):
             skipping = True
             continue
         if skipping:
-            if line.startswith("- id:") or (line.strip() == "" and False):
-                skipping = False
-            elif line.startswith("- "):
+            # a new top-level patch item or a blank line ends our block
+            if line.startswith("- ") or line.strip() == "":
                 skipping = False
             else:
                 continue
         if not skipping:
             out.append(line)
+    remaining = "".join(out).rstrip() + "\n"
     backup = profile.with_name(f"{profile.name}.arb-backup-{time.strftime('%Y%m%d-%H%M%S')}")
     shutil.copy2(profile, backup)
-    profile.write_text("".join(out), encoding="utf-8")
+    profile.write_text(remaining, encoding="utf-8")
     return {"changed": True, "profile": str(profile), "backup": str(backup)}
 
 

@@ -83,5 +83,5 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning: Se
   Codex `notify`, generic env/CLI context.
 - MCP stdio server: `ask_human`, `notify`, `progress`, `check_answer`, `list_pending`.
 - CLI: `init login logout start stop serve status doctor ask notify answer pending sessions hook mcp`.
-- 74 offline tests.
+- 74 offline tests at the time (now 112; see docs/VERIFICATION.md).
 - Research report comparing Happy, tlive, claude-telegram-mirror, openclaw-weixin, wechat-claude-code.

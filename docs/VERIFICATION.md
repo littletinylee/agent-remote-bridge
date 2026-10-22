@@ -11,14 +11,17 @@ Agent：Claude Code 2.1.181、Codex CLI 0.162.0-alpha.17.2。
 
 ```
 $ python -m unittest discover -s tests -p "test_*.py"
-Ran 74 tests in 10.2s
+Ran 112 tests in 19.5s
 OK
+$ ruff check src tests scripts
+All checks passed!
 ```
 
 覆盖：会话归并、编号唯一性、并发回答只生效一次、过期后不可回答、outbox 去重与重试、入站去重、
 路由优先级（引用 > #CODE > 唯一 pending > 拒绝）、危险操作需显式批准、跨会话不串线、
 投递失败不算批准、重启后 pending 仍可回答、HTTP API 鉴权、iLink 协议（本地假服务器）、
-MCP 协议（两种分帧）、各 Agent 的 hook 载荷解析。
+MCP 协议（两种分帧）、各 Agent 的 hook 载荷解析、通道监管与重启、hook 安装器（幂等/保留第三方/备份）、
+孤立代理字符清洗、报告脱敏、20 问题 × 10 会话乱序应答、8 线程并发批同一问题。
 
 ## 1. Claude Code：远程审批 → 同一轮继续（通过）
 

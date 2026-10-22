@@ -81,6 +81,10 @@ def chunk_text(text: str, limit: int) -> list[str]:
 
 
 def make_channel(cfg: Config, store: Store) -> Channel:
+    if cfg.channel == "relay":
+        from .channel.relay import RelayChannel
+
+        return RelayChannel(cfg, store)
     if cfg.channel == "console":
         from .channel.console import ConsoleChannel
 
@@ -276,6 +280,15 @@ class Daemon:
                 if self.stop_event.is_set():
                     return
                 try:
+                    # Relay mode: the hub must learn which machine owns this
+                    # code before the human can answer it.
+                    if row["question_id"] and hasattr(self.channel, "register_question"):
+                        q = self.store.get_question(row["question_id"])
+                        if q is not None:
+                            try:
+                                self.channel.register_question(q.code, q.prompt)  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
                     msg_id = ""
                     for chunk in chunk_text(row["text"], self.cfg.max_push_chars):
                         msg_id = self.channel.send(chunk)

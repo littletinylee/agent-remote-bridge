@@ -44,7 +44,12 @@ class Config:
     owner_ids: list[str] = field(default_factory=list)
 
     # channel
-    channel: str = "ilink"  # ilink | console
+    channel: str = "ilink"  # ilink | console | relay
+    hub_url: str = ""
+    hub_node_name: str = ""
+    hub_token: str = ""
+    hub_node_id: str = ""
+    hub_fingerprint: str = ""
     ilink_base_url: str = "https://ilinkai.weixin.qq.com"
     ilink_bot_type: str = "3"
 
@@ -127,7 +132,7 @@ class Config:
         self.question_ttl_s = max(30, int(self.question_ttl_s))
         self.approval_timeout_s = max(10, int(self.approval_timeout_s))
         self.owner_ids = [str(x) for x in (self.owner_ids or []) if str(x).strip()]
-        if self.channel not in {"ilink", "console"}:
+        if self.channel not in {"ilink", "console", "relay"}:
             self.channel = "ilink"
         if self.approval_mode not in {"notify", "approve"}:
             self.approval_mode = "notify"

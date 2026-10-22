@@ -65,8 +65,13 @@ class TestAuthorization(RouterHarness):
         self.assertEqual(self.cfg.owner_ids, [])
         self.assertEqual(self.router.handle_inbound(self.inbound("/pair PAIR1234", from_user="new")), "paired")
         self.assertIn("new", self.cfg.owner_ids)
-        reloaded = Config.from_dict(__import__("json").loads(self.cfg.config_path.read_text(encoding="utf-8")))
+        reloaded = Config.from_dict(__import__("json").loads(self.cfg.config_path.read_text(encoding="utf-8-sig")))
         self.assertIn("new", reloaded.owner_ids, "pairing must persist")
+        # the used code must not work a second time
+        self.assertNotEqual(reloaded.pairing_code, "PAIR1234", "pairing code must rotate after use")
+        before = list(reloaded.owner_ids)
+        self.assertEqual(self.router.handle_inbound(self.inbound("/pair PAIR1234", from_user="other")), "pair_failed")
+        self.assertEqual(reloaded.owner_ids, before)
 
 
 class TestSolePending(RouterHarness):

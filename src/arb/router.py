@@ -24,7 +24,7 @@ from . import text as T
 from .channel.base import InboundMessage
 from .config import Config
 from .store import Question, Store
-from .util import iso, one_line
+from .util import gen_secret, iso, one_line
 
 Sender = Callable[[str, str], None]  # (text, kind) -> enqueue for delivery
 
@@ -143,11 +143,14 @@ class Router:
             return "pair_failed"
         if msg.from_user not in self.cfg.owner_ids:
             self.cfg.owner_ids.append(msg.from_user)
-            self.cfg.save()
-        self.store.audit("pair_ok", msg.from_user, {"owner_ids": self.cfg.owner_ids})
+        # Rotate the pairing code: a leaked code cannot be replayed later.
+        self.cfg.pairing_code = gen_secret(9).replace("-", "").replace("_", "")[:10].upper()
+        self.cfg.save()
+        self.store.audit("pair_ok", msg.from_user, {"owner_ids": self.cfg.owner_ids, "code_rotated": True})
         self._reply(
             "✅ 绑定成功，这台机器上的 Agent 现在可以向你推送消息了。\n"
-            "发送 /help 查看可用命令；发送 /status 查看当前状态。"
+            "发送 /help 查看可用命令；发送 /status 查看当前状态。\n"
+            "(绑定码已更换，可在本机 `arb status` 查看新的)"
         )
         return "paired"
 

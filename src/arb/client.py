@@ -93,7 +93,17 @@ class Client:
                 os.close(fd)
         env = dict(os.environ)
         env.setdefault("ARB_HOME", str(self.cfg.home))
-        log = open(self.cfg.log_path, "ab")  # noqa: SIM115 - intentionally long lived
+        log_path = self.cfg.log_path
+        # Keep the log from growing without bound on a machine that runs for weeks.
+        try:
+            if log_path.exists() and log_path.stat().st_size > 5 * 1024 * 1024:
+                backup = log_path.with_suffix(".log.1")
+                if backup.exists():
+                    backup.unlink()
+                log_path.rename(backup)
+        except OSError:
+            pass
+        log = open(log_path, "ab")  # noqa: SIM115 - intentionally long lived
         kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "env": env, "cwd": str(Path.home())}
         if os.name == "nt":
             kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP

@@ -104,7 +104,7 @@ class Client:
         except OSError:
             pass
         log = open(log_path, "ab")  # noqa: SIM115 - intentionally long lived
-        kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "env": env, "cwd": str(Path.home())}
+        kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "env": env, "cwd": os.getcwd()}
         if os.name == "nt":
             kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
         else:

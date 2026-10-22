@@ -200,8 +200,22 @@ t+ 50s  state=healthy  healthy=True  uptime 113s（还是同一个进程）
 | Claude Code MCP | `~\.claude.json`（user scope，`claude mcp list` 显示 `√ Connected`） | `claude mcp remove arb` |
 | 备份 | `settings.json.arb-backup-20261022-122227` | 手工还原 |
 
-部署后做过一次真实自检：用**干净环境**（清空 `PYTHONPATH` / `ARB_HOME`）直接运行
-`arb-hook.cmd`，一条中文 `Notification` 成功入队并送达微信。
+部署后做过两次真实自检：
+
+1. 用**干净环境**（清空 `PYTHONPATH` / `ARB_HOME`）直接运行 `arb-hook.cmd`，一条中文
+   `Notification` 成功入队并送达微信 —— 证明钩子启动器不依赖调用方的环境变量。
+2. 用**你真实的 `~/.claude/settings.json`**（不是临时目录）跑了一次只读的 `claude -p`，
+   产生了 4 条推送并且全部 `sent=1`：
+
+```
+🟢 会话已连接      项目: agent-remote-bridge (claude-code)
+🟢 开始新任务      项目: agent-remote-bridge (claude-code)  只读任务：列出当前目录下的 .py 文件数量…
+✅ 一轮任务结束    项目: agent-remote-bridge (claude-code)  当前目录下共有 39 个 .py 文件…
+✅ 会话结束        项目: agent-remote-bridge (claude-code)
+```
+
+会话被正确归并到 Claude 自己返回的 `session_id`（`41598a52-…`），项目名取自 cwd。
+也就是说：**装好的配置在你的真实工作目录里确实在工作**，不是只在测试夹具里成立。
 
 ## 10. 结论
 
@@ -216,7 +230,8 @@ t+ 50s  state=healthy  healthy=True  uptime 113s（还是同一个进程）
 | 多并发问题准确回复 | ✅ 离线 + 真机 |
 | 渠道异常不会错误批准 | ✅ 测试 + 真机（裸 `1` 被拒） |
 | 断线恢复 | ✅ 测试（重启后 pending 仍可答；投递失败会重试） |
-| 长时间无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
-| 核心代码按里程碑提交 | ✅ 本地 18 个提交（push 待 GitHub 仓库创建） |
+| 长时无交互仍能推送 | ⏳ W3 待 1 小时后复测（机制已成立） |
+| 核心代码按里程碑提交 | ✅ 本地 23 个提交 + 4 个 tag（push 待 GitHub 仓库创建） |
 | 两种以上 Agent 真实验证 | ✅ Claude Code + Codex，hooks / MCP / CLI 三条路径 |
+| 真实安装配置可用 | ✅ 用真实 `~/.claude/settings.json` 跑 `claude -p`，4 条推送全部送达 |
 | 安装可撤销 | ✅ `arb hooks/service uninstall`、`arb logout`、`claude mcp remove arb` |

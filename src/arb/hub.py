@@ -544,6 +544,22 @@ def serve_hub(cfg_path: str) -> int:
     client = IlinkClient(creds["base_url"], creds["token"])
     hub = Hub(store, client, list(cfg["owner_ids"]), cfg.get("name", "hub"))
 
+    key_file = cfg.get("deepseek_key_file")
+    if key_file and Path(key_file).exists():
+        from .hub_chat import Advisor
+
+        api_key = Path(key_file).read_text(encoding="utf-8").strip()
+        if api_key:
+            # Read-only advisor: it is only consulted for free text, never for a
+            # decision, and it cannot approve anything (see hub_chat docstring).
+            hub.chat = Advisor(
+                api_key,
+                store,
+                model=cfg.get("deepseek_model", "deepseek-chat"),
+                base_url=cfg.get("deepseek_base_url", "https://api.deepseek.com"),
+            )
+            log_stderr(f"[hub] chat advisor enabled (model={hub.chat.model})")
+
     port = int(cfg.get("port", DEFAULT_PORT))
     httpd = HubServer(("0.0.0.0", port), make_handler(hub))
     if cfg.get("tls_cert") and cfg.get("tls_key"):

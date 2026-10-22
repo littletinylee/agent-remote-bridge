@@ -165,3 +165,31 @@ def secret_compare(given: str, expected: str) -> bool:
     if not given or not expected:
         return False
     return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
+def clean_text(value: Any) -> str:
+    """Make a string safe to store/broadcast.
+
+    Agents (and Windows console codepages) occasionally hand us lone UTF-16
+    surrogates. JSON accepts them, sqlite3 then raises UnicodeEncodeError, and
+    the caller sees a half-applied request. Replace them instead of exploding.
+    """
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    try:
+        text.encode("utf-8")
+        return text
+    except UnicodeEncodeError:
+        return text.encode("utf-8", "replace").decode("utf-8", "replace")
+
+
+def clean_json(value: Any) -> Any:
+    """Recursively clean every string inside a JSON-ish structure."""
+    if isinstance(value, str):
+        return clean_text(value)
+    if isinstance(value, dict):
+        return {clean_text(k): clean_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [clean_json(v) for v in value]
+    return value

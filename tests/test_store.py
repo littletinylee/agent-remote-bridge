@@ -85,6 +85,32 @@ class TestQuestions(ArbTestCase):
         self.assertEqual(second, [])
 
 
+class TestTextSafety(ArbTestCase):
+    def test_lone_surrogates_are_replaced_not_fatal(self) -> None:
+        s = Store(self.cfg.db_path)
+        sess = s.upsert_session(agent="a", project="p\xdca3", cwd="/x")
+        # would previously raise UnicodeEncodeError -> half-applied request
+        q = s.create_question(session_id=sess["id"], prompt="bad \udca3 prompt", options=["a\u0301", "b"])
+        s.enqueue("push \udca3 text")
+        s.audit("test", "actor\udca3", {"x": "y\udca3"})
+        self.assertIsNotNone(q)
+        self.assertIn("bad", s.get_question(q.id).prompt)
+        row = s.q("SELECT text FROM outbox ORDER BY id DESC LIMIT 1")[0]
+        self.assertIn("push", row["text"])
+
+    def test_inbound_with_surrogates_is_stored(self) -> None:
+        s = Store(self.cfg.db_path)
+        self.assertTrue(s.record_inbound("m-surrogate", "u", "hi \udca3"))
+
+    def test_clean_text_is_idempotent(self) -> None:
+        from arb.util import clean_text
+
+        self.assertEqual(clean_text("正常文本"), "正常文本")
+        self.assertEqual(clean_text(None), "")
+        self.assertEqual(clean_text(123), "123")
+        self.assertNotIn("\udca3", clean_text("x\udca3y"))
+
+
 class TestOutbox(ArbTestCase):
     def test_dedupe_and_retry(self) -> None:
         s = Store(self.cfg.db_path)

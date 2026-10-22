@@ -443,6 +443,54 @@ def cmd_service(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_hooks(args: argparse.Namespace) -> int:
+    """Install/remove the Claude Code hook entries (reversible, idempotent)."""
+    from . import install_hooks
+
+    cfg = _cfg()
+    path = Path(args.settings) if args.settings else install_hooks.default_settings_path()
+    if args.action == "install":
+        try:
+            res = install_hooks.install(path, cfg.home, sys.executable, dry_run=args.dry_run)
+        except ValueError as exc:
+            log_stderr(str(exc))
+            return EXIT_USAGE
+        if not res["changed"]:
+            print(f"已是最新，无需修改: {path}")
+        else:
+            print(("预览 " if args.dry_run else "已写入 ") + str(path))
+            print("新增事件: " + ", ".join(res["added"]))
+            if res.get("backup"):
+                print(f"原文件备份: {res['backup']}")
+        if not args.dry_run:
+            print(f"钩子启动器: {res['wrappers']['hook']}")
+            print("让 Claude 主动提问，再执行:")
+            print(f'  claude mcp add arb -- {res["wrappers"]["mcp"]} --agent claude-code')
+        print("生效方式: 下次启动 Claude Code。撤销: arb hooks uninstall")
+        return EXIT_OK
+    if args.action == "uninstall":
+        res = install_hooks.uninstall(path, dry_run=args.dry_run)
+        if not res["changed"]:
+            print(f"没有找到本项目的 hook: {path}")
+            return EXIT_OK
+        print(("预览 " if args.dry_run else "已移除 ") + str(path))
+        print("移除事件: " + ", ".join(res["removed"]))
+        if res.get("backup"):
+            print(f"原文件备份: {res['backup']}")
+        return EXIT_OK
+
+    res = install_hooks.status(path)
+    if not res["installed"]:
+        print(f"Claude Code hooks: 未安装 ({path})")
+        print("安装: arb hooks install")
+        return EXIT_OK
+    print(f"Claude Code hooks: 已安装 → {res['path']}")
+    for ev in res["events"]:
+        print(f"  · {ev['event']} ({ev['entries']} 条)")
+    print("MCP: claude mcp add arb -- " + install_hooks.mcp_command(cfg.home))
+    return EXIT_OK
+
+
 def cmd_approval(args: argparse.Namespace) -> int:
     """Toggle the remote approval gate without hand-editing JSON."""
     cfg = _cfg()
@@ -675,6 +723,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("approval", help="开关远程审批（on/off/status）")
     sp.add_argument("mode", nargs="?", default="status", choices=["on", "off", "status"])
     sp.set_defaults(func=cmd_approval)
+
+    sp = sub.add_parser("hooks", help="安装/移除 Claude Code hooks（install/uninstall/status）")
+    sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])
+    sp.add_argument("--settings", default="", help="自定义 settings.json 路径")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(func=cmd_hooks)
 
     sp = sub.add_parser("service", help="安装/卸载 Windows 登录自启（install/uninstall/status）")
     sp.add_argument("action", nargs="?", default="status", choices=["install", "uninstall", "status"])

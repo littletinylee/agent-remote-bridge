@@ -17,8 +17,15 @@
 
 ### 1) MCP：让 Claude 能主动问你
 
+```powershell
+arb hooks install     # 顺带生成 %ARB_HOME%\arb-mcp.cmd（自带 PYTHONPATH）
+claude mcp add arb -- "%APPDATA%\agent-remote-bridge\arb-mcp.cmd" --agent claude-code
+```
+
+如果你已经把本包 `pip install` 进环境（`arb` 在 PATH 上），也可以直接：
+
 ```bash
-claude mcp add arb -- python -m arb mcp --agent claude-code
+claude mcp add arb -- arb mcp --agent claude-code
 ```
 
 之后你在对话里说"需要我决定时用 arb 的 ask_human 问我"，或直接在 `CLAUDE.md` / 项目说明里写死这条规则。
@@ -28,8 +35,19 @@ claude mcp add arb -- python -m arb mcp --agent claude-code
 
 ### 2) Hooks：自动通知 + 远程审批
 
-把 [hooks/claude-settings.example.json](../hooks/claude-settings.example.json) 合并进 `~/.claude/settings.json`
-（或项目级 `.claude/settings.json`）。要点：
+一条命令搞定（幂等、可撤销、自动备份原文件）：
+
+```powershell
+arb hooks install      # 写入 ~/.claude/settings.json 并生成启动器
+arb hooks status       # 查看
+arb hooks uninstall    # 撤销（只删本项目加的条目）
+```
+
+它把命令指向 `%ARB_HOME%\arb-hook.cmd` 而不是 `python -m arb ...`，因为 Claude 启动钩子时
+**不会带上本仓库的 `PYTHONPATH`** —— 直接写 `python -m arb` 会 `ModuleNotFoundError`（实测踩过）。
+
+想手工维护的话，[hooks/claude-settings.example.json](../hooks/claude-settings.example.json) 是等价的手写版。
+要点：
 
 | 事件 | 作用 |
 |---|---|
@@ -39,10 +57,10 @@ claude mcp add arb -- python -m arb mcp --agent claude-code
 | `SessionEnd` | 会话结束 |
 | `PreToolUse` | **远程审批**（只在 `approval_mode=approve` 时生效） |
 
-一个 hook 命令长这样：
+一个 hook 命令长这样（`arb hooks install` 会自动写成这个形式）：
 
 ```json
-{ "type": "command", "command": "python -m arb hook claude-code", "timeout": 900 }
+{ "type": "command", "command": "\"C:\\Users\\you\\AppData\\Roaming\\agent-remote-bridge\\arb-hook.cmd\"", "timeout": 900 }
 ```
 
 `timeout` 必须 ≥ 配置里的 `approval_timeout_s`，否则 Claude 会先超时。

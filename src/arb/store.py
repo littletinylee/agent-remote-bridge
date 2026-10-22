@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
-from .util import gen_code, json_dumps, json_loads, new_id, now, truncate
+from .util import clean_json, clean_text, gen_code, json_dumps, json_loads, new_id, now, truncate
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -240,8 +240,11 @@ class Store:
 
     # -- audit -----------------------------------------------------------
     def audit(self, action: str, actor: str = "system", detail: Any = None) -> None:
-        detail_text = detail if isinstance(detail, str) else json_dumps(detail or {})
-        self.x("INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)", (now(), actor, action, detail_text))
+        detail_text = detail if isinstance(detail, str) else json_dumps(clean_json(detail) or {})
+        self.x(
+            "INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+            (now(), clean_text(actor), clean_text(action), clean_text(detail_text)),
+        )
 
     def audit_tail(self, limit: int = 20) -> list[dict[str, Any]]:
         rows = self.q("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))
@@ -295,7 +298,11 @@ class Store:
         self.x(
             "INSERT INTO sessions(id,agent,project,cwd,label,parent_id,status,session_key,meta,"
             "created_at,updated_at,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (sid, agent, project, cwd, label or project, parent_id, status, key, json_dumps(meta or {}), ts, ts, ts),
+            (
+                sid, clean_text(agent), clean_text(project), clean_text(cwd),
+                clean_text(label or project), parent_id, status, key,
+                json_dumps(clean_json(meta or {})), ts, ts, ts,
+            ),
         )
         return dict(self.q1("SELECT * FROM sessions WHERE id=?", (sid,)))
 
@@ -354,13 +361,13 @@ class Store:
                 chosen,
                 session_id,
                 kind,
-                prompt,
-                json_dumps(options or []),
+                clean_text(prompt),
+                json_dumps(clean_json(options or [])),
                 default_action,
                 1 if dangerous else 0,
                 ts,
                 ts + max(30, ttl_s),
-                json_dumps(context or {}),
+                json_dumps(clean_json(context or {})),
             ),
         )
         q = self.get_question(qid)
@@ -449,7 +456,7 @@ class Store:
         n = self.x(
             "INSERT OR IGNORE INTO outbox(dedupe,kind,text,session_id,question_id,created_at,next_try)"
             " VALUES(?,?,?,?,?,?,?)",
-            (dedupe_key, kind, text, session_id, question_id, ts, ts + max(0.0, delay_s)),
+            (dedupe_key, kind, clean_text(text), session_id, question_id, ts, ts + max(0.0, delay_s)),
         )
         if n == 0:
             return None
@@ -487,7 +494,7 @@ class Store:
         try:
             self.x(
                 "INSERT INTO inbound(msg_id,from_user,text,ref_svr_id,context_token,received_at,handled) VALUES(?,?,?,?,?,?,0)",
-                (msg_id, from_user, truncate(text, 4000), ref_svr_id, context_token, now()),
+                (msg_id, from_user, clean_text(truncate(text, 4000)), ref_svr_id, context_token, now()),
             )
             return True
         except sqlite3.IntegrityError:

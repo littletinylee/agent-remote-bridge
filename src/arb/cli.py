@@ -24,7 +24,7 @@ from typing import Any
 from . import __version__, agents
 from .client import ApiError, Client, DaemonUnavailable
 from .config import Config, clear_ilink, load, load_ilink
-from .util import json_dumps, log_stderr, now, one_line
+from .util import gen_secret, json_dumps, log_stderr, now, one_line
 
 EXIT_OK = 0
 EXIT_USAGE = 2

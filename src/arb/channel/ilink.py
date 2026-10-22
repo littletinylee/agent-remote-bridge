@@ -272,7 +272,9 @@ def login(
                 continue
             if state == STATUS_EXPIRED:
                 qr_refreshes += 1
-                if qr_refreshes > 4:
+                # Keep refreshing for as long as the caller's overall window
+                # allows: people walk away from the terminal.
+                if qr_refreshes > 80:
                     raise IlinkError("二维码多次过期，请重新运行 arb login")
                 say("二维码已过期，正在刷新…")
                 break

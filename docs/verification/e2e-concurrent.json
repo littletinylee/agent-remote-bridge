@@ -1,0 +1,135 @@
+{
+  "ok": true,
+  "phases": {
+    "phase1_non_blocking": {
+      "ok": true,
+      "A_done": true,
+      "C_done": true,
+      "B_used_answer": true,
+      "A_and_C_overlapped_B_wait": true,
+      "B_finished_last": true,
+      "t_question": 11.46,
+      "t_A_finish": 11.46,
+      "t_C_finish": 17.27,
+      "t_B_finish": 25.82
+    },
+    "phase2_no_crosstalk": {
+      "ok": true,
+      "db_code": "RQF4",
+      "cache_code": "DSZY",
+      "B1_said_postgres": true,
+      "B2_said_file": true
+    }
+  },
+  "events": [
+    {
+      "t": 0.61,
+      "event": "daemon_ready"
+    },
+    {
+      "t": 0.61,
+      "event": "start",
+      "agent": "A-claude"
+    },
+    {
+      "t": 0.61,
+      "event": "start",
+      "agent": "C-codex"
+    },
+    {
+      "t": 1.62,
+      "event": "start",
+      "agent": "B-codex-ask"
+    },
+    {
+      "t": 11.46,
+      "event": "question_raised",
+      "code": "S5VY"
+    },
+    {
+      "t": 11.46,
+      "event": "finish",
+      "agent": "A-claude",
+      "rc": 0
+    },
+    {
+      "t": 17.27,
+      "event": "finish",
+      "agent": "C-codex",
+      "rc": 0
+    },
+    {
+      "t": 17.27,
+      "event": "human_answer",
+      "code": "S5VY",
+      "text": "1"
+    },
+    {
+      "t": 25.82,
+      "event": "finish",
+      "agent": "B-codex-ask",
+      "rc": 0
+    },
+    {
+      "t": 25.82,
+      "event": "start",
+      "agent": "B1-db"
+    },
+    {
+      "t": 25.83,
+      "event": "start",
+      "agent": "B2-cache"
+    },
+    {
+      "t": 36.05,
+      "event": "human_answer",
+      "code": "RQF4",
+      "text": "1"
+    },
+    {
+      "t": 36.05,
+      "event": "human_answer",
+      "code": "DSZY",
+      "text": "2"
+    },
+    {
+      "t": 45.57,
+      "event": "finish",
+      "agent": "B1-db",
+      "rc": 0
+    },
+    {
+      "t": 45.57,
+      "event": "finish",
+      "agent": "B2-cache",
+      "rc": 0
+    },
+    {
+      "t": 45.58,
+      "event": "done"
+    }
+  ],
+  "details": {
+    "stats": {
+      "sessions": 2,
+      "active_sessions": 2,
+      "pending_questions": 0,
+      "questions_total": 3,
+      "answered": 3,
+      "expired": 0,
+      "inbound": 3
+    },
+    "sessions": [
+      {
+        "agent": "codex",
+        "project": "b2",
+        "status": "waiting"
+      },
+      {
+        "agent": "codex",
+        "project": "b1",
+        "status": "waiting"
+      }
+    ]
+  }
+}

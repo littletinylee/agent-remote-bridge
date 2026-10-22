@@ -362,8 +362,9 @@ class Daemon:
                 "name": getattr(self.channel, "name", "unknown"),
                 "healthy": healthy,
                 "state": state,
-                "last_error": self._last_channel_error,
-                "auth_error": getattr(self.channel, "auth_error", ""),
+                # A stale error next to healthy=true reads like a contradiction.
+                "last_error": "" if healthy else self._last_channel_error,
+                "auth_error": "" if healthy else getattr(self.channel, "auth_error", ""),
                 "logged_in": load_ilink(self.cfg).valid,
             },
             "stats": self.store.stats(),

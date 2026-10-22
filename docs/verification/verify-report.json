@@ -1,0 +1,77 @@
+{
+  "at": "2026-10-22T12:34:56+0800",
+  "home": "<home>\\AppData\\Roaming\\agent-remote-bridge",
+  "stats": {
+    "sessions": 6,
+    "pending": 0,
+    "answered": 2,
+    "expired": 0,
+    "inbound": 5,
+    "outbox_unsent": 0
+  },
+  "channel": {
+    "name": "ilink",
+    "healthy": true,
+    "state": "healthy",
+    "last_error": "",
+    "auth_error": "",
+    "logged_in": true
+  },
+  "checks": [
+    {
+      "check": "Python",
+      "ok": true,
+      "detail": "3.14.5 on Windows",
+      "required": true
+    },
+    {
+      "check": "配置文件",
+      "ok": true,
+      "detail": "<home>\\AppData\\Roaming\\agent-remote-bridge\\config.json",
+      "required": true
+    },
+    {
+      "check": "微信凭据",
+      "ok": true,
+      "detail": "account=ffbb…@im.bot",
+      "required": true
+    },
+    {
+      "check": "SQLite",
+      "ok": true,
+      "detail": "会话 6 / 提问 2 已回答 / 0 待处理",
+      "required": true
+    },
+    {
+      "check": "守护进程",
+      "ok": true,
+      "detail": "运行中 40s",
+      "required": true
+    },
+    {
+      "check": "微信通道健康",
+      "ok": true,
+      "detail": "ilink healthy=True last_error=-",
+      "required": true
+    },
+    {
+      "check": "已绑定微信用户",
+      "ok": true,
+      "detail": "o9cq…@im.wechat",
+      "required": true
+    },
+    {
+      "check": "iLink 端点可达",
+      "ok": true,
+      "detail": "108ms ret=0",
+      "required": true
+    },
+    {
+      "check": "离线测试",
+      "ok": true,
+      "detail": "Ran 112 tests in 19.012s /  / OK",
+      "required": true
+    }
+  ],
+  "ok": true
+}
